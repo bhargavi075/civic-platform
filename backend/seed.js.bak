@@ -1,0 +1,75 @@
+cdrequire('dotenv').config();
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+const User = require('./models/User');
+const Complaint = require('./models/Complaint');
+const Department = require('./models/Department');
+
+const seed = async () => {
+  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/civic_platform');
+  console.log('🔌 Connected to MongoDB');
+
+  // Clear existing data
+  await User.deleteMany({});
+  await Complaint.deleteMany({});
+  await Department.deleteMany({});
+  console.log('🗑️ Cleared existing data');
+
+  // Departments
+  const depts = await Department.insertMany([
+    { name: 'Roads Department', keywords: ['pothole', 'road', 'street', 'pavement', 'crack', 'bump'], description: 'Handles road and street maintenance', slaHigh: 24, slaMedium: 72, slaLow: 168 },
+    { name: 'Municipal Department', keywords: ['garbage', 'waste', 'trash', 'litter', 'sanitation', 'dirty'], description: 'Handles waste management and sanitation', slaHigh: 24, slaMedium: 72, slaLow: 168 },
+    { name: 'Electricity Department', keywords: ['streetlight', 'power outage', 'electricity', 'electric', 'blackout', 'lamp'], description: 'Handles electrical infrastructure', slaHigh: 24, slaMedium: 72, slaLow: 168 },
+    { name: 'Water Department', keywords: ['water', 'leak', 'pipe', 'drainage', 'flood', 'sewage'], description: 'Handles water supply and drainage', slaHigh: 24, slaMedium: 72, slaLow: 168 },
+    { name: 'Parks Department', keywords: ['park', 'tree', 'garden', 'playground', 'bench', 'grass'], description: 'Handles parks and green spaces', slaHigh: 72, slaMedium: 168, slaLow: 336 }
+  ]);
+  console.log('✅ Departments seeded');
+
+  // Admin
+  const admin = new User({ name: 'Admin User', email: 'admin@demo.com', password: 'demo123', role: 'admin' });
+  await admin.save();
+
+  // Officers
+  const officer1 = new User({ name: 'John Officer', email: 'officer@demo.com', password: 'demo123', role: 'officer', department: 'Roads Department', jurisdiction: 'Hyderabad Central' });
+  const officer2 = new User({ name: 'Priya Sharma', email: 'officer2@demo.com', password: 'demo123', role: 'officer', department: 'Municipal Department', jurisdiction: 'Hyderabad North' });
+  await officer1.save();
+  await officer2.save();
+
+  // Citizens
+  const citizen1 = new User({ name: 'Rahul Citizen', email: 'citizen@demo.com', password: 'demo123', role: 'citizen' });
+  const citizen2 = new User({ name: 'Anita Verma', email: 'citizen2@demo.com', password: 'demo123', role: 'citizen' });
+  await citizen1.save();
+  await citizen2.save();
+  console.log('✅ Users seeded');
+
+  // Sample complaints
+  const sampleComplaints = [
+    { title: 'Large pothole on MG Road near bus stop', description: 'There is a dangerous pothole approximately 2 feet wide and 6 inches deep near the main bus stop causing accidents', latitude: 17.3850, longitude: 78.4867, isAnonymous: false, citizenId: citizen1._id, severity: 4, votes: 23, status: 'InProgress', officerId: officer1._id },
+    { title: 'Garbage overflowing from bins in Jubilee Hills', description: 'The garbage bins near Jubilee Hills market have not been cleared for 3 days and garbage is spilling onto the road', latitude: 17.4320, longitude: 78.4071, isAnonymous: true, severity: 3, votes: 12, status: 'Pending' },
+    { title: 'Street light not working near school', description: 'Three street lights near Government Primary School have been non-functional for over a week making it dangerous', latitude: 17.3600, longitude: 78.5000, isAnonymous: false, citizenId: citizen2._id, severity: 3, votes: 8, status: 'Pending' },
+    { title: 'Water pipeline burst on Banjara Hills road', description: 'A major water pipeline has burst causing water logging and disruption to traffic and water supply', latitude: 17.4100, longitude: 78.4400, isAnonymous: false, citizenId: citizen1._id, severity: 5, votes: 45, status: 'Resolved', officerId: officer2._id, resolutionNote: 'Pipeline repaired and road restored. Water supply normalized.' },
+    { title: 'Broken playground equipment in Necklace Road park', description: 'The swings and slide in the children park near Necklace Road are broken and pose safety hazard to children', latitude: 17.4060, longitude: 78.4720, isAnonymous: false, citizenId: citizen2._id, severity: 2, votes: 5, status: 'Pending' },
+    { title: 'Sewage overflow near residential area', description: 'Sewage water is overflowing onto the footpath in Ameerpet residential area creating unhygienic conditions', latitude: 17.3720, longitude: 78.4510, isAnonymous: true, severity: 4, votes: 31, status: 'InProgress', officerId: officer2._id }
+  ];
+
+  for (const c of sampleComplaints) {
+    const complaint = new Complaint(c);
+    complaint.priority = complaint.calculatePriority();
+    await complaint.save();
+  }
+  console.log('✅ Sample complaints seeded');
+
+  console.log('\n🎉 Database seeded successfully!\n');
+  console.log('Demo credentials:');
+  console.log('  Admin:   admin@demo.com / demo123');
+  console.log('  Officer: officer@demo.com / demo123');
+  console.log('  Citizen: citizen@demo.com / demo123\n');
+
+  process.exit(0);
+};
+
+seed().catch(err => {
+  console.error('Seed error:', err);
+  process.exit(1);
+});

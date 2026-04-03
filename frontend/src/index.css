@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background-color: #f1f2ff;
+    color: #1e1b4b;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, h5, h6 { font-family: 'Sora', sans-serif; }
+}
+
+@layer components {
+
+  /* ── Buttons ── */
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white font-semibold py-2.5 px-5
+           rounded-xl transition-all duration-200 active:scale-95 font-display;
+    box-shadow: 0 3px 14px rgba(168,85,247,.35);
+  }
+  .btn-secondary {
+    @apply bg-white hover:bg-purple-50 text-primary-700 font-semibold py-2.5 px-5
+           rounded-xl border border-purple-200 transition-all duration-200 active:scale-95 font-display;
+  }
+  .btn-danger {
+    @apply bg-red-500 hover:bg-red-600 text-white font-semibold py-2.5 px-5
+           rounded-xl transition-all duration-200 active:scale-95 font-display;
+  }
+
+  /* ── Cards ── */
+  .card {
+    @apply bg-white rounded-2xl border border-purple-100 overflow-hidden;
+    box-shadow: 0 2px 12px rgba(168,85,247,.07);
+  }
+
+  /* ── Input ── */
+  .input-field {
+    @apply w-full px-4 py-2.5 rounded-xl border border-purple-100
+           focus:outline-none focus:ring-2 focus:ring-primary-400 focus:border-transparent
+           transition-all duration-200 bg-white text-gray-800 placeholder-gray-400 font-body;
+  }
+
+  /* ── Status badges ── */
+  .status-badge   { @apply inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold font-display; }
+  .status-pending    { @apply status-badge bg-amber-50 text-amber-700; }
+  .status-inprogress { @apply status-badge bg-blue-50 text-blue-700; }
+  .status-resolved   { @apply status-badge bg-emerald-50 text-emerald-700; }
+
+  /* ── Priority badges ── */
+  .priority-high   { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700; }
+  .priority-medium { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-orange-700; }
+  .priority-low    { @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600; }
+}
+
+/* ── Module backgrounds ── */
+.bg-citizen  { background: #f1f2ff; }
+.bg-officer  { background: #f2fdf9; }
+.bg-admin    { background: #fdf8ff; }
+.bg-map      { background: #f0f7ff; }
+
+/* ── Login gradient ── */
+.bg-login {
+  background: linear-gradient(135deg, #e8eaff 0%, #f5e8ff 100%);
+  min-height: 100vh;
+}
+
+/* ── Leaflet ── */
+.leaflet-container { border-radius: 14px; font-family: 'DM Sans', sans-serif !important; }
+.leaflet-popup-content-wrapper { border-radius: 14px !important; box-shadow: 0 10px 40px rgba(168,85,247,.12) !important; }
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f2ff; }
+::-webkit-scrollbar-thumb { background: #d8b4fe; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #a855f7; }
+
+/* ── Animations ── */
+.animate-fade-in  { animation: fadeIn 0.5s ease-in-out; }
+.animate-slide-up { animation: slideUp 0.4s ease-out; }
+@keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ── Spinner ── */
+.spinner {
+  width: 22px; height: 22px;
+  border: 3px solid rgba(255,255,255,0.35);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
