@@ -1,86 +1,145 @@
 // frontend/src/utils/api.js
-// ─── FULL REPLACEMENT — includes all existing endpoints + new chat endpoints ───
+// ─── FULL CORRECTED VERSION ─────────────────────────────────────────────
+
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+// ✅ Smart Base URL Handling (Dev + Prod + Env)
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV
+    ? 'http://localhost:5000/api'
+    : 'https://civic-backend-dlbd.onrender.com/api'); // 🔴 replace with your real backend
+
+// ✅ Axios Instance
+const instance = axios.create({
+  baseURL: API_BASE,
+  withCredentials: true,
+});
+
+// ✅ Attach Token Automatically (if exists)
+instance.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token'); // adjust if you use cookies
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// ───────────────────────────────────────────────────────────────────────
 
 export const api = {
-  // ─── Auth ─────────────────────────────────────────────────────────────────────
-  register: (data) => axios.post(`${API_BASE}/auth/register`, data),
-  login:    (data) => axios.post(`${API_BASE}/auth/login`, data),
-  getMe:    ()     => axios.get(`${API_BASE}/auth/me`),
+  // ─── Auth ────────────────────────────────────────────────────────────
+  register: (data) => instance.post('/auth/register', data),
+  login:    (data) => instance.post('/auth/login', data),
+  getMe:    ()     => instance.get('/auth/me'),
 
-  // ─── Complaints ───────────────────────────────────────────────────────────────
-  getComplaints:   (params) => axios.get(`${API_BASE}/complaints`, { params }),
-  getComplaint:    (id)     => axios.get(`${API_BASE}/complaints/${id}`),
+  // ─── Complaints ──────────────────────────────────────────────────────
+  getComplaints: (params) =>
+    instance.get('/complaints', { params }),
+
+  getComplaint: (id) =>
+    instance.get(`/complaints/${id}`),
+
   createComplaint: (data) => {
     const isFormData = data instanceof FormData;
-    return axios.post(`${API_BASE}/complaints`, data, {
+    return instance.post('/complaints', data, {
       headers: isFormData
         ? { 'Content-Type': 'multipart/form-data' }
         : { 'Content-Type': 'application/json' },
     });
   },
-  checkDuplicate:        (data)          => axios.post(`${API_BASE}/complaints/check-duplicate`, data),
-  deleteComplaint:       (id)            => axios.delete(`${API_BASE}/complaints/${id}`),
-  voteComplaint:         (id)            => axios.post(`${API_BASE}/complaints/${id}/vote`),
-  updateComplaintStatus: (id, data)      => axios.patch(`${API_BASE}/complaints/${id}/status`, data),
-  assignComplaint:       (id, officerId) => axios.patch(`${API_BASE}/complaints/${id}/assign`, { officerId }),
 
-  // ─── Officer ──────────────────────────────────────────────────────────────────
-  getOfficerComplaints:   ()         => axios.get(`${API_BASE}/officers/complaints`),
-  updateOfficerComplaint: (id, data) => axios.patch(`${API_BASE}/officers/complaints/${id}`, data),
-  getOfficerStats:        ()         => axios.get(`${API_BASE}/officers/stats`),
+  checkDuplicate: (data) =>
+    instance.post('/complaints/check-duplicate', data),
 
-  // ─── Admin ────────────────────────────────────────────────────────────────────
-  getAnalytics:       ()         => axios.get(`${API_BASE}/admin/analytics`),
-  getOfficers:        ()         => axios.get(`${API_BASE}/admin/officers`),
-  createOfficer:      (data)     => axios.post(`${API_BASE}/admin/officers`, data),
-  updateOfficer:      (id, data) => axios.put(`${API_BASE}/admin/officers/${id}`, data),
-  deleteOfficer:      (id)       => axios.delete(`${API_BASE}/admin/officers/${id}`),
-  getAdminComplaints: ()         => axios.get(`${API_BASE}/admin/complaints`),
-  getCitizens:        ()         => axios.get(`${API_BASE}/admin/citizens`),
+  deleteComplaint: (id) =>
+    instance.delete(`/complaints/${id}`),
 
-  // ─── Departments ──────────────────────────────────────────────────────────────
-  getDepartments:   ()         => axios.get(`${API_BASE}/departments`),
-  createDepartment: (data)     => axios.post(`${API_BASE}/departments`, data),
-  updateDepartment: (id, data) => axios.put(`${API_BASE}/departments/${id}`, data),
-  deleteDepartment: (id)       => axios.delete(`${API_BASE}/departments/${id}`),
-  seedDepartments:  ()         => axios.post(`${API_BASE}/departments/seed`),
+  voteComplaint: (id) =>
+    instance.post(`/complaints/${id}/vote`),
 
-  // ─── Chat (NEW) ───────────────────────────────────────────────────────────────
-  // Returns all chat sessions for current user (no messages, sidebar-only)
+  updateComplaintStatus: (id, data) =>
+    instance.patch(`/complaints/${id}/status`, data),
+
+  assignComplaint: (id, officerId) =>
+    instance.patch(`/complaints/${id}/assign`, { officerId }),
+
+  // ─── Officer ─────────────────────────────────────────────────────────
+  getOfficerComplaints: () =>
+    instance.get('/officers/complaints'),
+
+  updateOfficerComplaint: (id, data) =>
+    instance.patch(`/officers/complaints/${id}`, data),
+
+  getOfficerStats: () =>
+    instance.get('/officers/stats'),
+
+  // ─── Admin ───────────────────────────────────────────────────────────
+  getAnalytics: () =>
+    instance.get('/admin/analytics'),
+
+  getOfficers: () =>
+    instance.get('/admin/officers'),
+
+  createOfficer: (data) =>
+    instance.post('/admin/officers', data),
+
+  updateOfficer: (id, data) =>
+    instance.put(`/admin/officers/${id}`, data),
+
+  deleteOfficer: (id) =>
+    instance.delete(`/admin/officers/${id}`),
+
+  getAdminComplaints: () =>
+    instance.get('/admin/complaints'),
+
+  getCitizens: () =>
+    instance.get('/admin/citizens'),
+
+  // ─── Departments ─────────────────────────────────────────────────────
+  getDepartments: () =>
+    instance.get('/departments'),
+
+  createDepartment: (data) =>
+    instance.post('/departments', data),
+
+  updateDepartment: (id, data) =>
+    instance.put(`/departments/${id}`, data),
+
+  deleteDepartment: (id) =>
+    instance.delete(`/departments/${id}`),
+
+  seedDepartments: () =>
+    instance.post('/departments/seed'),
+
+  // ─── Chat ────────────────────────────────────────────────────────────
   getChats: () =>
-    axios.get(`${API_BASE}/chat`),
+    instance.get('/chat'),
 
-  // Returns a single chat with all messages
   getChat: (chatId) =>
-    axios.get(`${API_BASE}/chat/${chatId}`),
+    instance.get(`/chat/${chatId}`),
 
-  // Creates a new empty chat session
   createChat: () =>
-    axios.post(`${API_BASE}/chat`),
+    instance.post('/chat'),
 
-  // Appends a message to a chat: { sender: 'user'|'bot', text: string }
   sendMessage: (chatId, message) =>
-    axios.post(`${API_BASE}/chat/${chatId}/messages`, message),
+    instance.post(`/chat/${chatId}/messages`, message),
 
-  // Rename a chat
   renameChat: (chatId, title) =>
-    axios.patch(`${API_BASE}/chat/${chatId}/title`, { title }),
+    instance.patch(`/chat/${chatId}/title`, { title }),
 
-  // Permanently delete a chat from DB
   deleteChat: (chatId) =>
-    axios.delete(`${API_BASE}/chat/${chatId}`),
-  // ─── Performance (NEW) ───────────────────────────────────────────────────────
-  // Officers in a department with stats (for Performance tab sidebar)
+    instance.delete(`/chat/${chatId}`),
+
+  // ─── Performance ─────────────────────────────────────────────────────
   getDeptOfficers: (dept) =>
-    axios.get(`${API_BASE}/admin/departments/${encodeURIComponent(dept)}/officers`),
+    instance.get(`/admin/departments/${encodeURIComponent(dept)}/officers`),
 
-  // Full officer profile + all assigned issues
   getOfficerIssues: (officerId) =>
-    axios.get(`${API_BASE}/admin/officers/${officerId}/issues`),
-
+    instance.get(`/admin/officers/${officerId}/issues`),
 };
 
 export default api;
