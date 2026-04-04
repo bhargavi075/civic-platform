@@ -15,12 +15,13 @@ const chatRoutes = require('./routes/chat');
 
 const app = express();
 
-// ✅ Middleware
+// ✅ CORS FIX (IMPORTANT)
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
+  origin: "https://civic-platform-chi.vercel.app",
   credentials: true
 }));
 
+// ✅ Middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -35,6 +36,11 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/chat', chatRoutes);
 
+// ✅ Root route (to avoid "Not Found")
+app.get('/', (req, res) => {
+  res.send('CivicVoice Backend Running 🚀');
+});
+
 // ✅ Health check
 app.get('/api/health', (req, res) => {
   res.json({
@@ -43,14 +49,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ✅ MongoDB connection
-mongoose.connect(
-  process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/civic_platform',
-  {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  }
-)
+// ✅ MongoDB connection (FIXED)
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
 .then(() => console.log('✅ MongoDB connected'))
 .catch(err => console.error('❌ MongoDB error:', err));
 
