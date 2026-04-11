@@ -1,5 +1,4 @@
 // frontend/src/utils/api.js
-// ─── FULL REPLACEMENT — includes all existing endpoints + new chat endpoints ───
 import axios from 'axios';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -13,17 +12,42 @@ export const api = {
   // ─── Complaints ───────────────────────────────────────────────────────────────
   getComplaints:   (params) => axios.get(`${API_BASE}/complaints`, { params }),
   getComplaint:    (id)     => axios.get(`${API_BASE}/complaints/${id}`),
+
   createComplaint: (data) => {
-    // When sending FormData, let the browser set Content-Type (including boundary).
-    // We must NOT pass a headers object that would override axios defaults and
-    // accidentally strip the Authorization token set by AuthContext.
-    const isFormData = data instanceof FormData;
-    return isFormData
-      ? axios.post(`${API_BASE}/complaints`, data)
-      : axios.post(`${API_BASE}/complaints`, data, {
-          headers: { 'Content-Type': 'application/json' },
-        });
+    /*
+     * FIX BUG 5: Guarantee the Authorization header is always sent.
+     *
+     * The original code relied solely on axios.defaults.headers.common being
+     * set by AuthContext's useEffect. That works correctly when the token is
+     * set in the same JS execution context — but there is a race condition:
+     *
+     *   1. Page hard-refresh → AuthContext mounts → reads token from
+     *      localStorage → calls setToken(token)
+     *   2. useEffect([token]) fires ASYNCHRONOUSLY — it schedules
+     *      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
+     *   3. If ReportIssue's handleSubmit fires before step 2 completes (e.g.
+     *      user navigates directly to /citizen/report via URL bar and submits
+     *      quickly), axios.defaults may still be empty → 401 Unauthorized →
+     *      the request silently fails.
+     *
+     * Defense: read the token directly from localStorage as a fallback.
+     * localStorage is synchronous and always up-to-date by the time JS runs.
+     *
+     * For FormData (multipart/form-data): do NOT set Content-Type manually.
+     * axios detects FormData and automatically sets the correct
+     * `Content-Type: multipart/form-data; boundary=----XYZ` header.
+     * Overriding it here would strip the boundary and break multer on the server.
+     */
+    const token = localStorage.getItem('civic_token');
+    const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+
+    return axios.post(`${API_BASE}/complaints`, data, {
+      headers: authHeader,
+      // Timeout: 30s for file uploads (default axios has no timeout)
+      timeout: 30000,
+    });
   },
+
   checkDuplicate:        (data)          => axios.post(`${API_BASE}/complaints/check-duplicate`, data),
   deleteComplaint:       (id)            => axios.delete(`${API_BASE}/complaints/${id}`),
   voteComplaint:         (id)            => axios.post(`${API_BASE}/complaints/${id}/vote`),
@@ -51,45 +75,23 @@ export const api = {
   deleteDepartment: (id)       => axios.delete(`${API_BASE}/departments/${id}`),
   seedDepartments:  ()         => axios.post(`${API_BASE}/departments/seed`),
 
-  // ─── Chat (NEW) ───────────────────────────────────────────────────────────────
-  // Returns all chat sessions for current user (no messages, sidebar-only)
-  getChats: () =>
-    axios.get(`${API_BASE}/chat`),
+  // ─── Chat ─────────────────────────────────────────────────────────────────────
+  getChats:    ()                  => axios.get(`${API_BASE}/chat`),
+  getChat:     (chatId)            => axios.get(`${API_BASE}/chat/${chatId}`),
+  createChat:  ()                  => axios.post(`${API_BASE}/chat`),
+  sendMessage: (chatId, message)   => axios.post(`${API_BASE}/chat/${chatId}/messages`, message),
+  renameChat:  (chatId, title)     => axios.patch(`${API_BASE}/chat/${chatId}/title`, { title }),
+  deleteChat:  (chatId)            => axios.delete(`${API_BASE}/chat/${chatId}`),
 
-  // Returns a single chat with all messages
-  getChat: (chatId) =>
-    axios.get(`${API_BASE}/chat/${chatId}`),
-
-  // Creates a new empty chat session
-  createChat: () =>
-    axios.post(`${API_BASE}/chat`),
-
-  // Appends a message to a chat: { sender: 'user'|'bot', text: string }
-  sendMessage: (chatId, message) =>
-    axios.post(`${API_BASE}/chat/${chatId}/messages`, message),
-
-  // Rename a chat
-  renameChat: (chatId, title) =>
-    axios.patch(`${API_BASE}/chat/${chatId}/title`, { title }),
-
-  // Permanently delete a chat from DB
-  deleteChat: (chatId) =>
-    axios.delete(`${API_BASE}/chat/${chatId}`),
-  // ─── Performance (NEW) ───────────────────────────────────────────────────────
-  // Officers in a department with stats (for Performance tab sidebar)
-  getDeptOfficers: (dept) =>
-    axios.get(`${API_BASE}/admin/departments/${encodeURIComponent(dept)}/officers`),
-
-  // Full officer profile + all assigned issues
-  getOfficerIssues: (officerId) =>
-    axios.get(`${API_BASE}/admin/officers/${officerId}/issues`),
+  // ─── Performance ──────────────────────────────────────────────────────────────
+  getDeptOfficers:  (dept)       => axios.get(`${API_BASE}/admin/departments/${encodeURIComponent(dept)}/officers`),
+  getOfficerIssues: (officerId)  => axios.get(`${API_BASE}/admin/officers/${officerId}/issues`),
 
   // ─── SLA Rules ────────────────────────────────────────────────────────────────
-  getSlaRules:    ()         => axios.get(`${API_BASE}/sla-rules`),
-  saveSlaRule:    (data)     => axios.post(`${API_BASE}/sla-rules`, data),
-  updateSlaRule:  (id, data) => axios.put(`${API_BASE}/sla-rules/${id}`, data),
-  deleteSlaRule:  (id)       => axios.delete(`${API_BASE}/sla-rules/${id}`),
-
+  getSlaRules:   ()         => axios.get(`${API_BASE}/sla-rules`),
+  saveSlaRule:   (data)     => axios.post(`${API_BASE}/sla-rules`, data),
+  updateSlaRule: (id, data) => axios.put(`${API_BASE}/sla-rules/${id}`, data),
+  deleteSlaRule: (id)       => axios.delete(`${API_BASE}/sla-rules/${id}`),
 };
 
 export default api;

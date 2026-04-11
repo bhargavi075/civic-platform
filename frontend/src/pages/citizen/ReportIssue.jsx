@@ -112,18 +112,15 @@ const ReportIssue = () => {
     isAnonymous: false, severity: 1, language: 'en'
   });
 
-  // ── NEW: track whether the user typed the address manually ────────────────
-  // When true, we do NOT auto-overwrite the address from reverse-geocode.
   const [manualAddress, setManualAddress] = useState(false);
-
-  const [mediaFiles,  setMediaFiles]  = useState([]);
-  const [position,    setPosition]    = useState([17.385, 78.4867]);
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState('');
-  const [duplicate,   setDuplicate]   = useState(null);
-  const [speechLang,  setSpeechLang]  = useState('en-US');
-  const [inputLang,   setInputLang]   = useState('en');
-  const [translating, setTranslating] = useState(false);
+  const [mediaFiles,    setMediaFiles]    = useState([]);
+  const [position,      setPosition]      = useState([17.385, 78.4867]);
+  const [loading,       setLoading]       = useState(false);
+  const [error,         setError]         = useState('');
+  const [duplicate,     setDuplicate]     = useState(null);
+  const [speechLang,    setSpeechLang]    = useState('en-US');
+  const [inputLang,     setInputLang]     = useState('en');
+  const [translating,   setTranslating]   = useState(false);
   const checkTimerRef = useRef(null);
   const prevLangRef   = useRef(lang);
 
@@ -134,7 +131,6 @@ const ReportIssue = () => {
         const lat = pos.coords.latitude, lng = pos.coords.longitude;
         setPosition([lat, lng]);
         setForm(f => ({ ...f, latitude: lat, longitude: lng }));
-        // Only auto-fill address if the user hasn't typed one yet
         if (!manualAddress) reverseGeocode(lat, lng);
       }, () => {});
     }
@@ -165,11 +161,15 @@ const ReportIssue = () => {
         ]);
         setForm(f => ({ ...f, title: newTitle, description: newDesc }));
         setInputLang(lang);
-      } catch {}
-      setTranslating(false);
+      } catch {
+        // Translation failed silently — keep original text, unblock UI
+      } finally {
+        // Always clear translating: never leave the overlay stuck on screen
+        setTranslating(false);
+      }
     };
     doTranslate();
-  }, [lang]);
+  }, [lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Reverse geocode ───────────────────────────────────────────────────── */
   const reverseGeocode = async (lat, lng) => {
@@ -190,13 +190,9 @@ const ReportIssue = () => {
     }
   };
 
-  // ── NEW: Manual address handler ────────────────────────────────────────
-  // When the user types in the address box, mark it as manually entered
-  // so we stop auto-overwriting it when the map moves.
   const handleAddressChange = (e) => {
     setManualAddress(true);
     setForm(f => ({ ...f, address: e.target.value }));
-    // Trigger duplicate check (address-based) after a short pause
     clearTimeout(checkTimerRef.current);
     checkTimerRef.current = setTimeout(checkDuplicate, 1500);
   };
@@ -235,7 +231,6 @@ const ReportIssue = () => {
         title: form.title, description: form.description,
         latitude: form.latitude, longitude: form.longitude
       });
-      console.log('[DuplicateCheck] result:', data);
       if (data.isDuplicate) setDuplicate(data.existing);
     } catch {}
   };
@@ -266,11 +261,53 @@ const ReportIssue = () => {
 
   /* ── Submit ────────────────────────────────────────────────────────────── */
   const handleSubmit = async (e) => {
+    // Step 1: Always call preventDefault first — before any guard returns.
+    // If this is missing, the browser performs a full page reload.
     e.preventDefault();
+
+    // ── Debug checkpoint 1: confirm the handler actually fired ─────────────
+    console.log('[ReportIssue] handleSubmit fired ✅');
+    console.log('[ReportIssue] form state:', {
+      title:       form.title,
+      description: form.description,
+      address:     form.address,
+      latitude:    form.latitude,
+      longitude:   form.longitude,
+      severity:    form.severity,
+      mediaCount:  mediaFiles.length,
+    });
+
+    // ── FIX BUG 4: Guard against submission while translation overlay is up ─
+    // The translating overlay covers the full screen (fixed inset-0) which
+    // blocks click events — the button's disabled={loading || translating}
+    // handles the UI case, but a keyboard Enter on a focused input could still
+    // trigger onSubmit while translating is true if the browser fires the
+    // submit event before React processes the state update.
+    if (translating) {
+      console.warn('[ReportIssue] Submit blocked — translation in progress');
+      return;
+    }
+
+    if (loading) {
+      console.warn('[ReportIssue] Submit blocked — already submitting');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
-    // Validate: must have address OR coordinates
+    // ── Validation ─────────────────────────────────────────────────────────
+    if (!form.title || !form.title.trim()) {
+      setError('Please enter an issue title.');
+      setLoading(false);
+      return;
+    }
+    if (!form.description || !form.description.trim()) {
+      setError('Please enter a description.');
+      setLoading(false);
+      return;
+    }
+
     const hasAddress = form.address && form.address.trim().length > 0;
     const hasCoords  = form.latitude != null && form.longitude != null;
     if (!hasAddress && !hasCoords) {
@@ -279,10 +316,11 @@ const ReportIssue = () => {
       return;
     }
 
+    // ── Build FormData ──────────────────────────────────────────────────────
     try {
       const formData = new FormData();
-      formData.append('title',       form.title);
-      formData.append('description', form.description);
+      formData.append('title',       form.title.trim());
+      formData.append('description', form.description.trim());
       formData.append('address',     form.address || '');
       formData.append('latitude',    form.latitude  ?? '');
       formData.append('longitude',   form.longitude ?? '');
@@ -292,28 +330,41 @@ const ReportIssue = () => {
 
       mediaFiles.forEach(({ file }) => formData.append('media', file));
 
-      console.log('[ReportIssue] Submitting complaint with:', {
-        title:       form.title,
-        address:     form.address,
-        latitude:    form.latitude,
-        longitude:   form.longitude,
-        mediaCount:  mediaFiles.length,
-      });
+      // ── Debug checkpoint 2: confirm axios call is about to fire ────────
+      console.log('[ReportIssue] Calling api.createComplaint →', `${import.meta.env.VITE_API_URL || ''}/api/complaints`);
+      console.log('[ReportIssue] Authorization header present:', !!localStorage.getItem('civic_token'));
 
       const { data } = await api.createComplaint(formData);
 
-      console.log('[ReportIssue] Response:', data);
-      console.log('[ReportIssue] Priority assigned:', data.priority);
-      console.log('[ReportIssue] ML Info:', data.mlInfo);
+      // ── Debug checkpoint 3: confirm server responded ───────────────────
+      console.log('[ReportIssue] ✅ Success — server response:', data);
+      console.log('[ReportIssue] Assigned department:', data.department);
+      console.log('[ReportIssue] Assigned priority:',   data.priority);
+      console.log('[ReportIssue] ML info:',             data.mlInfo);
 
       navigate('/citizen');
+
     } catch (err) {
-      console.error('[ReportIssue] Error:', err.response?.data);
-      // Handle duplicate detected during actual submission (409)
+      // ── Debug checkpoint 4: log exactly what the server returned ───────
+      console.error('[ReportIssue] ❌ Submission failed');
+      console.error('[ReportIssue] HTTP status:',   err.response?.status);
+      console.error('[ReportIssue] Server message:', err.response?.data);
+      console.error('[ReportIssue] Raw error:',      err.message);
+
       if (err.response?.status === 409 && err.response?.data?.existingComplaint) {
+        // Server-side duplicate detection during actual submission
         setDuplicate(err.response.data.existingComplaint);
+      } else if (err.response?.status === 401) {
+        setError('Session expired. Please log in again.');
+      } else if (err.response?.status === 400) {
+        setError(err.response.data?.message || 'Please fill in all required fields.');
+      } else if (err.code === 'ECONNABORTED') {
+        setError('Upload timed out. Try with smaller files or check your connection.');
+      } else if (!err.response) {
+        // Network error — request never reached the server
+        setError('Cannot reach the server. Make sure the backend is running on port 5000.');
       } else {
-        setError(err.response?.data?.message || 'Failed to submit complaint');
+        setError(err.response?.data?.message || 'Failed to submit complaint. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -323,7 +374,7 @@ const ReportIssue = () => {
   /* ── Cleanup object-URLs on unmount ────────────────────────────────────── */
   useEffect(() => {
     return () => { mediaFiles.forEach(({ preview }) => URL.revokeObjectURL(preview)); };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="min-h-screen bg-citizen">
@@ -338,10 +389,21 @@ const ReportIssue = () => {
         />
       )}
 
+      {/*
+        FIX BUG 4 (overlay): The translating overlay must NOT block the entire
+        screen unconditionally. It's already conditionally rendered {translating && ...}
+        which is correct — but we also add `aria-hidden` and ensure the spinner
+        itself has pointer-events: none so it never captures clicks accidentally
+        if React batches a state update slower than expected.
+      */}
       {translating && (
-        <div className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40 flex items-center justify-center">
+        <div
+          className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40 flex items-center justify-center"
+          aria-hidden="true"
+          style={{ pointerEvents: 'all' }}
+        >
           <div className="bg-white rounded-2xl shadow-xl px-8 py-6 flex items-center gap-4">
-            <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" style={{ pointerEvents: 'none' }}></div>
             <p className="font-display font-semibold text-gray-700">Translating your text…</p>
           </div>
         </div>
@@ -359,9 +421,20 @@ const ReportIssue = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        {/*
+          The form's onSubmit is the only submission trigger.
+          The submit button has type="submit" — this is correct and must stay.
+          Do NOT change it to type="button" with an onClick — that breaks
+          keyboard Enter submission and native form validation.
+        */}
+        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
 
-          {/* ── Issue Details ────────────────────────────────────────────── */}
+          {/* ── Issue Details ─────────────────────────────────────────────── */}
+          {/*
+            IMPORTANT: These sections use className="card" NOT "card-interactive".
+            .card no longer has a hover transform (fixed in index.css).
+            If you add card-interactive here the hover lift will break clicks again.
+          */}
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 className="font-display font-semibold text-lg text-gray-800">{t('issueDetails')}</h2>
@@ -453,7 +526,7 @@ const ReportIssue = () => {
             </div>
           </div>
 
-          {/* ── LOCATION (UPDATED) ───────────────────────────────────────── */}
+          {/* ── Location ─────────────────────────────────────────────────── */}
           <div className="card p-6">
             <h2 className="font-display font-semibold text-lg text-gray-800 mb-1">{t('location')}</h2>
             <p className="text-sm text-gray-500 mb-4">
@@ -461,7 +534,6 @@ const ReportIssue = () => {
               At least one is required.
             </p>
 
-            {/* ── NEW: Manual address text input ─────────────────────────── */}
             <div className="mb-4">
               <label className="block text-sm font-semibold text-gray-700 mb-1.5 font-display">
                 📝 Type Address Manually
@@ -479,7 +551,6 @@ const ReportIssue = () => {
               </p>
             </div>
 
-            {/* ── Map ────────────────────────────────────────────────────── */}
             <div className="mb-3">
               <label className="block text-sm font-semibold text-gray-700 mb-1.5 font-display">
                 🗺️ Or Select on Map <span className="font-normal text-gray-400">(click to pin)</span>
@@ -493,7 +564,6 @@ const ReportIssue = () => {
               </div>
             </div>
 
-            {/* Coordinate display */}
             <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
               <span>📍 Lat: {form.latitude?.toFixed(6) ?? 'N/A'}</span>
               <span>Lng: {form.longitude?.toFixed(6) ?? 'N/A'}</span>
@@ -502,7 +572,6 @@ const ReportIssue = () => {
               )}
             </div>
 
-            {/* Validation hint */}
             {!form.address && !form.latitude && (
               <p className="mt-2 text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">
                 ⚠️ Please type an address or click on the map to set a location.
@@ -510,7 +579,7 @@ const ReportIssue = () => {
             )}
           </div>
 
-          {/* ── Upload Media ─────────────────────────────────────────────── */}
+          {/* ── Upload Media ──────────────────────────────────────────────── */}
           <div className="card p-6">
             <h2 className="font-display font-semibold text-lg text-gray-800 mb-1">
               📎 Upload Media (Images / Videos)
@@ -578,6 +647,13 @@ const ReportIssue = () => {
 
           {/* Submit / Cancel */}
           <div className="flex gap-4">
+            {/*
+              type="submit" is intentional and required.
+              Do NOT change to type="button" — that breaks Enter-to-submit
+              and native HTML5 form validation (required fields).
+              The card hover transform fix in index.css ensures this button
+              stays under the cursor when clicked.
+            */}
             <button
               type="submit"
               disabled={loading || translating}

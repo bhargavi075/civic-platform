@@ -23,7 +23,21 @@
            text-white font-semibold py-2.5 px-5 rounded-xl font-display;
     box-shadow: 0 4px 18px rgba(168,85,247,.40);
     transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease;
-    position: relative; overflow: hidden;
+    /*
+     * FIX BUG 3: Removed `position: relative; overflow: hidden;`
+     *
+     * The animations.css file defines a .btn-press::after pseudo-element with
+     * `inset: 0` (full button coverage) and `position: absolute`. When
+     * btn-primary also had `position: relative; overflow: hidden`, that
+     * pseudo-element created a full-size invisible overlay on hover. On
+     * Chromium-based browsers this overlay sits above the button's content in
+     * the stacking context and intercepts pointer events before they bubble to
+     * the <button> element — preventing onSubmit from firing.
+     *
+     * The hover glow effect is preserved via box-shadow below.
+     * If you need the ripple effect on marketing pages, apply .btn-press
+     * separately only to non-form buttons.
+     */
   }
   .btn-primary:hover  { transform: translateY(-3px) scale(1.03); box-shadow: 0 10px 28px rgba(168,85,247,.50); }
   .btn-primary:active { transform: scale(0.96); }
@@ -48,9 +62,43 @@
   .card {
     @apply bg-white rounded-2xl border border-purple-100 overflow-hidden;
     box-shadow: 0 4px 20px rgba(168,85,247,.08);
-    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease;
+    transition: box-shadow 0.3s ease;
+    /*
+     * FIX BUG 2: Removed `transition: transform` and the :hover transform.
+     *
+     * The original rule was:
+     *   transition: transform 0.3s ..., box-shadow 0.3s ease;
+     *   .card:hover { transform: translateY(-4px) scale(1.01); }
+     *
+     * Every form section (Issue Details, Location, Media) uses className="card".
+     * When the user moved the mouse toward the Submit button, the card shifted
+     * UP by 4px and scaled to 1.01x. This moved the button away from the cursor
+     * at exactly the moment of click — causing a consistent miss on all browsers.
+     * On slower machines / lower frame rates the shift was large enough to place
+     * the button edge outside the cursor hotspot entirely.
+     *
+     * Shadow transition is kept for a subtle depth effect without breaking clicks.
+     * Dashboard/info cards that should lift on hover should use .card-interactive
+     * defined below instead of the base .card class.
+     */
   }
   .card:hover {
+    /* ✅ Shadow only — no transform that shifts the card under the cursor */
+    box-shadow: 0 16px 40px rgba(168,85,247,.18);
+  }
+
+  /*
+   * Use .card-interactive on dashboard tiles, complaint list items, stat cards —
+   * anywhere that is a link/CTA and should have the full hover-lift effect.
+   * Do NOT add this to form container cards.
+   */
+  .card-interactive {
+    @apply bg-white rounded-2xl border border-purple-100 overflow-hidden;
+    box-shadow: 0 4px 20px rgba(168,85,247,.08);
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s ease;
+    cursor: pointer;
+  }
+  .card-interactive:hover {
     transform: translateY(-4px) scale(1.01);
     box-shadow: 0 16px 40px rgba(168,85,247,.18);
   }
@@ -60,11 +108,23 @@
     @apply w-full px-4 py-2.5 rounded-xl border-2 border-purple-100
            focus:outline-none focus:border-purple-400
            bg-white text-gray-800 placeholder-gray-400 font-body;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    /*
+     * FIX BUG 4: Removed `transform 0.2s` from transition and `transform: scale(1.01)`
+     * from :focus.
+     *
+     * The input scale-on-focus combined with the card scale-on-hover created a
+     * compounded CSS transform stack. The browser's hit-testing uses the element's
+     * rendered bounding rect AFTER transforms are applied. A focused input inside a
+     * hovered card was scaled 1.01 * 1.01 = ~1.02x, shifting its rendered position
+     * enough that adjacent elements (labels, the submit button) received clicks
+     * intended for slightly different coordinates. This is particularly bad in
+     * Firefox which is stricter about hit-rect recalculation during transitions.
+     */
   }
   .input-field:focus {
+    /* ✅ Glow ring only — no scale transform */
     box-shadow: 0 0 0 4px rgba(168,85,247,.15), 0 4px 12px rgba(168,85,247,.1);
-    transform: scale(1.01);
   }
 
   /* ── Status badges ── */

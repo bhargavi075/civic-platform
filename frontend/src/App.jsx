@@ -35,15 +35,24 @@ const LoadingScreen = () => (
   </div>
 );
 
+// ─── FIX: ProtectedRoute must NOT add its own page-wrapper. ──────────────────
+// The outer AnimatedRoutes already wraps every route in page-wrapper which
+// runs the pageEnter animation (opacity 0 → 1, translateY 18px → 0).
+// Adding a second page-wrapper here created a NESTED opacity:0 element —
+// clicks fired during the 550ms animation window landed on an invisible
+// ancestor and were swallowed before reaching the form or submit button.
 const ProtectedRoute = ({ children, requiredRole }) => {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to={`/${requiredRole}/login`} replace />;
   if (requiredRole && user.role !== requiredRole) return <Navigate to="/" replace />;
-  return <div className="page-wrapper">{children}</div>;
+  // ✅ Return children directly — animation is handled by AnimatedRoutes
+  return children;
 };
 
 /* ── Page transition wrapper ─────────────────────────────────────────────── */
+// key={location.pathname} remounts this div on every navigation,
+// re-triggering the pageEnter animation exactly once per page load.
 const AnimatedRoutes = () => {
   const location = useLocation();
   return (
