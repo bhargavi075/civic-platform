@@ -4,7 +4,6 @@ import api from '../../utils/api';
 import { useAuth } from '../../context/AuthContext';
 import { useLang } from '../../context/LanguageContext';
 import { translateComplaints } from '../../utils/translateCache';
-import Chatbot from '../../components/Chatbot';
 import { useCountUp } from '../../animations/useAnimations';
 
 const statusColors  = { Pending: 'status-pending', InProgress: 'status-inprogress', Resolved: 'status-resolved' };

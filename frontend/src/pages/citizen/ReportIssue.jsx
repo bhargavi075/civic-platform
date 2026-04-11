@@ -286,7 +286,7 @@ const ReportIssue = () => {
       formData.append('address',     form.address || '');
       formData.append('latitude',    form.latitude  ?? '');
       formData.append('longitude',   form.longitude ?? '');
-      formData.append('isAnonymous', form.isAnonymous);
+      formData.append('isAnonymous', form.isAnonymous ? 'true' : 'false');
       formData.append('severity',    form.severity);
       formData.append('language',    form.language);
 
@@ -309,7 +309,12 @@ const ReportIssue = () => {
       navigate('/citizen');
     } catch (err) {
       console.error('[ReportIssue] Error:', err.response?.data);
-      setError(err.response?.data?.message || 'Failed to submit complaint');
+      // Handle duplicate detected during actual submission (409)
+      if (err.response?.status === 409 && err.response?.data?.existingComplaint) {
+        setDuplicate(err.response.data.existingComplaint);
+      } else {
+        setError(err.response?.data?.message || 'Failed to submit complaint');
+      }
     } finally {
       setLoading(false);
     }

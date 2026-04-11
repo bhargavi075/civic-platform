@@ -30,52 +30,157 @@ const QUICK_SUGGESTIONS = [
 
 // ─── Response Engine ──────────────────────────────────────────────────────────
 
-const buildResponse = (input, stats) => {
+const buildResponse = (input, stats, user) => {
   const text = input.toLowerCase().trim();
+  const role = user?.role || 'guest';
+  const name = user?.name || '';
+  const dept = user?.department || '';
+
+  // ── Identity / profile ─────────────────────────────────────────────────────
+  if (/(what(?:'s| is) my name|who am i|tell me my name|my name|my profile|who i am)/.test(text)) {
+    if (user)
+      return `👤 **Your Profile**\n\n**Name:** ${name}\n**Role:** ${role.charAt(0).toUpperCase() + role.slice(1)}${dept ? `\n**Department:** ${dept}` : ''}${user.email ? `\n**Email:** ${user.email}` : ''}\n\nYou're logged in to CivicVoice. How can I help you today?`;
+    return `🔐 You're not logged in.\n\nPlease sign in to access your profile.`;
+  }
+
+  if (/(what(?:'s| is) your name|who are you|your name|are you (a )?bot|are you ai|what are you)/.test(text))
+    return `🏙️ I'm **${BOT_NAME}**, the CivicVoice AI assistant!\n\nI help citizens report civic issues, officers manage complaints, and admins oversee the platform.\n\nWhat can I help you with?`;
+
+  if (/(am i logged in|my account|my email|my role|my details|logged in)/.test(text)) {
+    if (user)
+      return `✅ **You're logged in!**\n\n**Name:** ${name}\n**Role:** ${role.charAt(0).toUpperCase() + role.slice(1)}${dept ? `\n**Department:** ${dept}` : ''}${user.email ? `\n**Email:** ${user.email}` : ''}\n\nYour session is active.`;
+    return `🔐 You're not currently logged in.\n\nSign in to access your account and features.`;
+  }
+
+  // ── OFFICER-SPECIFIC responses ─────────────────────────────────────────────
+
+  if (role === 'officer' || role === 'admin') {
+
+    // How to update a complaint status
+    if (/(how.*(update|change|mark|set).*(status|complaint)|update.*complaint|change.*status|mark.*resolved|mark.*progress|resolve.*complaint)/.test(text))
+      return `🔄 **How to Update a Complaint Status**\n\n1. Go to your **Officer Dashboard** at /officer\n2. Find the complaint in your list\n3. Click the **"Update"** button on the complaint\n4. Choose the new status:\n   • **Pending** — Not yet started\n   • **In Progress** — Actively working on it\n   • **Resolved** — Issue fixed\n5. Add a **resolution note** describing what was done\n6. Optionally upload before/after photos\n7. Click **"Update Status"** to save\n\n✅ The citizen will see the updated status in real time.`;
+
+    // SLA / deadline questions
+    if (/(sla|deadline|time limit|breach|overdue|due date|how long|resolution time)/.test(text))
+      return `⏰ **SLA (Service Level Agreement)**\n\nEach complaint has a resolution deadline based on priority:\n\n🔴 **High Priority** — 24 hours\n🟡 **Medium Priority** — 72 hours (3 days)\n🟢 **Low Priority** — 168 hours (7 days)\n\nAdmins can set custom SLA rules per category.\n\n🚨 **Breached complaints** appear at the **top** of your dashboard in red — tackle those first!\n\nCheck your dashboard at **/officer** to see SLA timers.`;
+
+    // What complaints are assigned to me
+    if (/(my complaint|assigned to me|my case|my task|what.*assign|show.*complaint|view.*complaint|my workload)/.test(text))
+      return `📋 **Your Assigned Complaints**\n\n${dept ? `You're assigned to the **${dept}**.` : ''}\n\nYour dashboard at **/officer** shows:\n• 🚨 **SLA-breached** complaints at the top (act immediately)\n• 🔴 **High priority** complaints next\n• All complaints assigned to you or your department\n\n**Filters available:**\n• All / Pending / In Progress / Resolved\n\nClick **"Update"** on any complaint to change its status.`;
+
+    // How to add resolution note
+    if (/(resolution note|note|comment|describe|what.*write|how.*close|close.*complaint)/.test(text))
+      return `📝 **Writing a Resolution Note**\n\nWhen resolving a complaint:\n1. Click **"Update"** on the complaint\n2. Set status to **"Resolved"**\n3. In the **Resolution Note** field, describe:\n   • What action was taken\n   • Materials or resources used\n   • Date of completion\n4. Upload **before/after photos** as evidence\n5. Click **"Update Status"**\n\nA good resolution note helps citizens trust the system and gives admins a clear audit trail.`;
+
+    // Priority questions
+    if (/(priority|high priority|urgent|which.*first|order|important)/.test(text))
+      return `🎯 **Complaint Priority Guide**\n\n🔴 **High** — Safety emergencies, live wires, collapses, disease outbreaks\n   → Resolve within **24 hours**\n\n🟡 **Medium** — Water leaks, power cuts, overflowing garbage, potholes\n   → Resolve within **72 hours**\n\n🟢 **Low** — Broken streetlights, overgrown grass, minor maintenance\n   → Resolve within **7 days**\n\nPriority is auto-assigned by AI but can be influenced by citizen severity ratings and votes. Always tackle **SLA-breached** and **High priority** complaints first.`;
+
+    // AI advice / officer advisor
+    if (/(ai advice|suggestion|what.*do|how.*fix|recommend|advisor|solution|steps|action plan)/.test(text))
+      return `🤖 **AI Officer Suggestions**\n\nFor every complaint, CivicVoice provides an AI-generated action plan:\n\n• 💡 **Suggested solution** — What to do\n• ⏱️ **Estimated time** — How long it takes\n• 💰 **Estimated cost** — Approximate budget\n• 📋 **Step-by-step plan** — Detailed action steps\n\nTo see AI advice:\n1. Click **"Update"** on any complaint in your dashboard\n2. The AI suggestion panel loads automatically at the top of the modal\n3. Expand it with **"▼ Steps"** for the full action plan`;
+
+    // Department info for officer
+    if (/(my department|which department|department.*i|i.*department)/.test(text))
+      return dept
+        ? `🏢 **Your Department: ${dept}**\n\nYou handle complaints classified under **${dept}**.\n\nYour dashboard shows all complaints assigned to you or routed to your department.\n\nIf you think a complaint is misclassified, you can update its status and add a note — the admin can then reassign it to the correct department.`
+        : `🏢 You don't have a department assigned yet.\n\nContact your admin to get assigned to a department so complaints can be routed to you.`;
+
+    // Stats for officer
+    if (/(stat|summar|overview|count|number|total|how many|my stat|my performance)/.test(text)) {
+      if (stats)
+        return `📊 **Your Complaint Overview**\n\n✅ Resolved: **${stats.resolved ?? 0}**\n⏳ Pending: **${stats.pending ?? 0}**\n🔧 In Progress: **${stats.inProgress ?? 0}**\n📋 Total Assigned: **${(stats.resolved ?? 0) + (stats.pending ?? 0) + (stats.inProgress ?? 0)}**\n\nVisit **/officer** to see your full dashboard with SLA timers.`;
+      return `📊 Stats are loading. Visit **/officer** to see your full dashboard.`;
+    }
+
+    // Greetings for officer
+    if (/(hi|hello|hey|howdy|good morning|good evening|namaste|greetings)/.test(text))
+      return `👋 Hello, **${name}**! Welcome to CivicVoice Officer Portal.\n\n${dept ? `You're managing **${dept}** complaints.` : ''}\n\nI can help you with:\n• 📋 Viewing & updating assigned complaints\n• ⏰ Understanding SLA deadlines\n• 🎯 Complaint priority guidance\n• 🤖 AI-generated action plans\n• 📊 Your performance stats\n\nWhat do you need help with?`;
+
+    // Help for officer
+    if (/(help|what can you do|guide|support|assist|commands|options)/.test(text))
+      return `💡 **Officer Help — What I can assist with:**\n\n📋 **Complaints** — "Show my assigned complaints"\n🔄 **Update** — "How do I update a complaint status?"\n⏰ **SLA** — "What are the SLA deadlines?"\n🎯 **Priority** — "Which complaints should I handle first?"\n🤖 **AI Tips** — "How do I get AI suggestions?"\n📝 **Notes** — "How do I write a resolution note?"\n🏢 **Department** — "What is my department?"\n📊 **Stats** — "Show my stats"\n👤 **Profile** — "Who am I?"\n\nJust type naturally — I'll understand!`;
+  }
+
+  // ── ADMIN-SPECIFIC responses ───────────────────────────────────────────────
+
+  if (role === 'admin') {
+
+    if (/(add officer|create officer|new officer|how.*officer)/.test(text))
+      return `👮 **Adding a New Officer**\n\n1. Go to **Admin Dashboard** → **Officers** tab\n2. Click **"+ Add Officer"**\n3. Fill in name, email, password, department, and jurisdiction\n4. Click **"Add"** — the officer can now log in at /officer/login\n\nOfficers are automatically assigned complaints from their department.`;
+
+    if (/(sla rule|set sla|configure sla|sla setting|deadline rule)/.test(text))
+      return `⚙️ **Configuring SLA Rules**\n\n1. Go to **Admin Dashboard** → **SLA Rules** tab\n2. Click **"+ Add SLA Rule"**\n3. Select a **category** (Roads, Water, Electricity, etc.)\n4. Set hours for each priority:\n   • 🔴 High Priority deadline\n   • 🟡 Medium Priority deadline\n   • 🟢 Low Priority deadline\n5. Save — existing unresolved complaints in that category are automatically updated\n\nCustom SLA rules override the platform defaults (24h/72h/168h).`;
+
+    if (/(analytics|performance|report|dashboard|overview|insight)/.test(text))
+      return `📈 **Admin Analytics**\n\nYour dashboard at **/admin** shows:\n\n• 📊 **Total complaints** with resolution rate\n• ⏰ **SLA breaches** count\n• 📉 **Monthly trend** graph (last 6 months)\n• 🏆 **Top performing officers**\n• 🏢 **Category breakdown** by department\n• 👥 **Platform users** (citizens + officers)\n\nGo to the **Performance** tab to drill into individual officer stats and department comparisons.`;
+
+    if (/(assign|reassign|which officer|allocate)/.test(text))
+      return `🔀 **Assigning Complaints to Officers**\n\n1. Go to **Admin Dashboard** → **Complaints** tab\n2. Find the complaint you want to assign\n3. Use the **"Assign..."** dropdown to select an officer\n4. The complaint moves to **In Progress** and appears in the officer's dashboard\n\nComplaints are also auto-routed to the correct department based on AI classification.`;
+  }
+
+  // ── CITIZEN-SPECIFIC responses ─────────────────────────────────────────────
+
+  if (role === 'citizen' || role === 'guest') {
+    if (/(report|submit|file|raise|new complaint|create issue|add issue)/.test(text))
+      return `📝 **How to Report an Issue**\n\n1. Go to your **Citizen Dashboard** at /citizen\n2. Click **"+ Report Issue"**\n3. Fill in the title and description\n4. Use 🎤 **Voice Input** to speak your issue in your language\n5. Pin the location on the map (or type an address)\n6. Upload photos or videos if available\n7. Set severity (1–5) and submit\n\n✅ Your complaint will be auto-classified and sent to the right department instantly!\n\n➡️ Head to **/citizen/report** to get started.`;
+
+    if (/(track|status|where is|follow up|update|my complaint|my issue|my case)/.test(text))
+      return `🔍 **Track Your Complaint**\n\n1. Go to your **Citizen Dashboard** at /citizen\n2. Your complaints are listed with live status badges:\n   • ⏳ **Pending** — Received, not yet assigned\n   • 🔧 **In Progress** — Officer working on it\n   • ✅ **Resolved** — Fixed!\n3. Click any complaint to see full details, the assigned officer, and resolution notes\n4. Use the **Map View** at /citizen/map to see all nearby issues\n\nYou can also **👍 vote** on complaints to increase their priority!`;
+
+    if (/(vote|support|upvote|boost|priority.*complaint)/.test(text))
+      return `👍 **Voting on Complaints**\n\nVoting helps boost the priority of important issues:\n\n• Find a complaint on your dashboard or map\n• Click the **👍 thumbs up** button\n• 10+ votes → **Medium priority**\n• 20+ votes → **High priority**\n\nThis ensures the most impactful issues get resolved first. You can also un-vote by clicking again.`;
+
+    if (/(anonymous|hide.*identity|private|without name)/.test(text))
+      return `🕵️ **Anonymous Reporting**\n\nYou can report issues without revealing your identity:\n\n1. On the **Report Issue** form, check **"Report Anonymously"**\n2. Your name won't be shown on the public complaint\n3. Officers and admins also won't see who filed it\n\nAll other features (tracking, voting) still work normally.`;
+
+    if (/(delete|remove|cancel.*complaint|withdraw)/.test(text))
+      return `🗑️ **Deleting a Complaint**\n\nYou can delete your complaint only if:\n• It's still in **Pending** status (not yet assigned)\n• You're the original reporter (not anonymous)\n\nTo delete:\n1. Go to your **Citizen Dashboard**\n2. Click the 🗑️ trash icon on the complaint\n3. Confirm deletion\n\nOnce a complaint is **In Progress** or **Resolved**, it cannot be deleted.`;
+  }
+
+  // ── SHARED responses (all roles) ───────────────────────────────────────────
 
   if (/(resolved|completed|fixed|done|closed)/.test(text)) {
-    if (stats)
-      return `✅ **Resolved Complaints**\n\n${stats.resolved ?? 'N/A'} complaint${stats.resolved !== 1 ? 's' : ''} have been successfully resolved. Great progress! 🎉`;
-    return '⚠️ Stats unavailable right now. Please ensure you\'re logged in and try again shortly.';
+    if (stats) return `✅ **Resolved Complaints**\n\n**${stats.resolved ?? 'N/A'}** complaint${stats.resolved !== 1 ? 's' : ''} have been successfully resolved. 🎉`;
+    return '⚠️ Stats unavailable right now.';
   }
 
   if (/(pending|waiting|not yet|queue|backlog)/.test(text)) {
-    if (stats)
-      return `⏳ **Pending Complaints**\n\n${stats.pending ?? 'N/A'} complaint${stats.pending !== 1 ? 's' : ''} are awaiting review.\n\nOur teams are working to address them quickly.`;
-    return '⚠️ Stats unavailable right now. Please ensure you\'re logged in and try again shortly.';
+    if (stats) return `⏳ **Pending Complaints**\n\n**${stats.pending ?? 'N/A'}** complaint${stats.pending !== 1 ? 's' : ''} are awaiting action.`;
+    return '⚠️ Stats unavailable right now.';
   }
 
   if (/(in.?progress|ongoing|active|working|process)/.test(text)) {
-    if (stats)
-      return `🔧 **In-Progress Complaints**\n\n${stats.inProgress ?? 'N/A'} complaint${stats.inProgress !== 1 ? 's' : ''} are currently being worked on.\n\nField teams are actively resolving these issues.`;
-    return '⚠️ Stats unavailable right now. Please ensure you\'re logged in and try again shortly.';
+    if (stats) return `🔧 **In-Progress Complaints**\n\n**${stats.inProgress ?? 'N/A'}** complaint${stats.inProgress !== 1 ? 's' : ''} are currently being worked on.`;
+    return '⚠️ Stats unavailable right now.';
   }
 
   if (/(stat|summar|overview|count|number|total|how many|dashboard data|complaint stat)/.test(text)) {
     if (stats)
-      return `📊 **Complaint Overview**\n\n✅ Resolved: **${stats.resolved ?? 'N/A'}**\n⏳ Pending: **${stats.pending ?? 'N/A'}**\n🔧 In-Progress: **${stats.inProgress ?? 'N/A'}**\n\nTotal tracked: **${(stats.resolved ?? 0) + (stats.pending ?? 0) + (stats.inProgress ?? 0)}** complaints.`;
-    return '⚠️ Unable to load stats. Please check your connection or login status.';
+      return `📊 **Complaint Overview**\n\n✅ Resolved: **${stats.resolved ?? 'N/A'}**\n⏳ Pending: **${stats.pending ?? 'N/A'}**\n🔧 In Progress: **${stats.inProgress ?? 'N/A'}**\n📋 Total: **${(stats.resolved ?? 0) + (stats.pending ?? 0) + (stats.inProgress ?? 0)}**`;
+    return '⚠️ Unable to load stats right now.';
   }
 
-  if (/(report|submit|file|raise|new complaint|create issue|add issue)/.test(text))
-    return `📝 **How to Report an Issue**\n\n1. Log in to your citizen account\n2. Click **"Report Issue"** in your dashboard\n3. Select a department & category\n4. Describe your issue with photos\n5. Submit — you'll get a tracking ID instantly!\n\n➡️ Head to **/citizen/report** to get started.`;
-
   if (/(department|category|sector|division|type of issue|which department)/.test(text))
-    return `🏢 **Available Departments**\n\n${DEPARTMENTS.join('\n')}\n\nYour complaint will be auto-assigned to the most relevant department.`;
+    return `🏢 **Available Departments**\n\n${DEPARTMENTS.join('\n')}\n\nComplaints are auto-classified by AI to the most relevant department.`;
 
-  if (/(track|status|where is|follow up|update|my complaint|my issue|my case)/.test(text))
-    return `🔍 **Track Your Complaint**\n\nTo track your complaint:\n1. Go to your **Citizen Dashboard** at /citizen\n2. Find your complaint by ID or date\n3. Click on it to see real-time status updates\n\nYou can also view it on the **Map View** at /citizen/map.`;
+  if (/(login|sign in|password|forgot|register|sign up|auth)/.test(text))
+    return `🔐 **Account Help**\n\n• **Citizens**: /citizen/login\n• **Officers**: /officer/login\n• **Admins**: /admin/login\n• **New citizen?** Register at /citizen/register\n\nForgot password? Contact your civic administrator.`;
 
-  if (/(login|sign in|password|account|forgot|register|sign up|auth)/.test(text))
-    return `🔐 **Account Help**\n\n• **Citizens**: Login at /citizen/login\n• **Officers**: Login at /officer/login\n• **New user?** Register at /citizen/register\n\nForgot password? Contact your civic administrator.`;
+  if (/(hi|hello|hey|howdy|good morning|good evening|namaste|greetings)/.test(text)) {
+    const greeting = name ? `👋 Hello, **${name}**!` : `👋 Hello!`;
+    return `${greeting} I'm **${BOT_NAME}**.\n\nI can help you with complaints, status updates, SLA info, department guidance, and more.\n\nType **"help"** to see what I can do.`;
+  }
 
-  if (/(hi|hello|hey|howdy|good morning|good evening|namaste|greetings)/.test(text))
-    return `👋 Hello! I'm **${BOT_NAME}**.\n\nI can help you with:\n• 📊 Complaint statistics\n• 📝 Reporting civic issues\n• 🔍 Tracking complaints\n• 🏢 Department information\n\nWhat would you like to know?`;
+  if (/(help|what can you do|guide|support|assist|commands|options)/.test(text)) {
+    if (role === 'officer')
+      return `💡 **Officer Help Menu**\n\n📋 "Show my assigned complaints"\n🔄 "How do I update a complaint?"\n⏰ "What are the SLA deadlines?"\n🎯 "Which complaints should I handle first?"\n🤖 "How do I get AI suggestions?"\n📝 "How do I write a resolution note?"\n🏢 "What is my department?"\n📊 "Show my stats"\n👤 "Who am I?"`;
+    if (role === 'admin')
+      return `💡 **Admin Help Menu**\n\n👮 "How do I add an officer?"\n⚙️ "How do I set SLA rules?"\n📈 "Show analytics"\n🔀 "How do I assign complaints?"\n📊 "Show stats"\n👤 "Who am I?"`;
+    return `💡 **Help Menu**\n\n📝 "How do I report an issue?"\n🔍 "Track my complaint"\n👍 "How does voting work?"\n🕵️ "Can I report anonymously?"\n🗑️ "How do I delete a complaint?"\n📊 "Show complaint stats"\n🏢 "What departments are available?"\n👤 "Who am I?"`;
+  }
 
-  if (/(help|what can you do|guide|support|assist|commands|options)/.test(text))
-    return `💡 **I can help you with:**\n\n📊 **Stats** — "How many complaints are resolved?"\n📝 **Report** — "How do I report an issue?"\n🔍 **Track** — "Track my complaint"\n🏢 **Departments** — "What departments are available?"\n🔐 **Login** — "Help with login"\n\nJust type naturally — I'll understand!`;
-
-  return `🤔 I didn't quite catch that.\n\nTry asking about:\n• Complaint stats (resolved, pending, in-progress)\n• How to report an issue\n• Tracking your complaint\n• Available departments\n\nOr type **"help"** to see all options.`;
+  return `🤔 I didn't quite catch that.\n\nType **"help"** to see everything I can assist with, or ask me about:\n${role === 'officer' ? '• Updating complaints, SLA deadlines, priority guidance, AI suggestions' : role === 'admin' ? '• Adding officers, SLA rules, analytics, assigning complaints' : '• Reporting issues, tracking complaints, voting, anonymous reporting'}`;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -265,22 +370,36 @@ const Chatbot = () => {
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
   useEffect(() => {
   const fetchStats = async () => {
     try {
+      // Try officer/admin stats endpoint first
       const res = await api.getOfficerStats();
-
       const data = res.data?.data ?? res.data ?? {};
-
       setStats({
         resolved: data.resolved ?? data.resolvedCount ?? 0,
         pending: data.pending ?? data.pendingCount ?? 0,
         inProgress: data.inProgress ?? data.in_progress ?? 0,
       });
-
-    } catch (err) {
-      console.error("Stats error:", err);
-      setStats(null);
+    } catch {
+      // Fallback: compute stats from public complaints list (works for citizens)
+      try {
+        const res = await api.getComplaints();
+        const complaints = res.data ?? [];
+        setStats({
+          resolved:   complaints.filter(c => c.status === 'Resolved').length,
+          pending:    complaints.filter(c => c.status === 'Pending').length,
+          inProgress: complaints.filter(c => c.status === 'InProgress').length,
+        });
+      } catch (err) {
+        console.error("Stats error:", err);
+        setStats(null);
+      }
     }
   };
 
@@ -431,7 +550,7 @@ const Chatbot = () => {
 
   await new Promise((r) => setTimeout(r, 400));
 
-  const localResponse = buildResponse(trimmed, stats);
+  const localResponse = buildResponse(trimmed, stats, user);
 
   if (!localResponse.includes("I didn't quite catch that")) {
     setMessages((prev) => [
@@ -483,7 +602,7 @@ const Chatbot = () => {
 
   if (!isOpen) setUnreadCount((c) => c + 1);
 
-}, [input, activeChatId, stats, isOpen, createNewChat]);
+}, [input, activeChatId, stats, user, isOpen, createNewChat]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }

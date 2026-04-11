@@ -1,145 +1,95 @@
 // frontend/src/utils/api.js
-// ─── FULL CORRECTED VERSION ─────────────────────────────────────────────
-
+// ─── FULL REPLACEMENT — includes all existing endpoints + new chat endpoints ───
 import axios from 'axios';
 
-// ✅ Smart Base URL Handling (Dev + Prod + Env)
-const API_BASE =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV
-    ? 'http://localhost:5000/api'
-    : 'https://civic-backend-dlbd.onrender.com/api'); // 🔴 replace with your real backend
-
-// ✅ Axios Instance
-const instance = axios.create({
-  baseURL: API_BASE,
-  withCredentials: true,
-});
-
-// ✅ Attach Token Automatically (if exists)
-instance.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token'); // adjust if you use cookies
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// ───────────────────────────────────────────────────────────────────────
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export const api = {
-  // ─── Auth ────────────────────────────────────────────────────────────
-  register: (data) => instance.post('/auth/register', data),
-  login:    (data) => instance.post('/auth/login', data),
-  getMe:    ()     => instance.get('/auth/me'),
+  // ─── Auth ─────────────────────────────────────────────────────────────────────
+  register: (data) => axios.post(`${API_BASE}/auth/register`, data),
+  login:    (data) => axios.post(`${API_BASE}/auth/login`, data),
+  getMe:    ()     => axios.get(`${API_BASE}/auth/me`),
 
-  // ─── Complaints ──────────────────────────────────────────────────────
-  getComplaints: (params) =>
-    instance.get('/complaints', { params }),
-
-  getComplaint: (id) =>
-    instance.get(`/complaints/${id}`),
-
+  // ─── Complaints ───────────────────────────────────────────────────────────────
+  getComplaints:   (params) => axios.get(`${API_BASE}/complaints`, { params }),
+  getComplaint:    (id)     => axios.get(`${API_BASE}/complaints/${id}`),
   createComplaint: (data) => {
+    // When sending FormData, let the browser set Content-Type (including boundary).
+    // We must NOT pass a headers object that would override axios defaults and
+    // accidentally strip the Authorization token set by AuthContext.
     const isFormData = data instanceof FormData;
-    return instance.post('/complaints', data, {
-      headers: isFormData
-        ? { 'Content-Type': 'multipart/form-data' }
-        : { 'Content-Type': 'application/json' },
-    });
+    return isFormData
+      ? axios.post(`${API_BASE}/complaints`, data)
+      : axios.post(`${API_BASE}/complaints`, data, {
+          headers: { 'Content-Type': 'application/json' },
+        });
   },
+  checkDuplicate:        (data)          => axios.post(`${API_BASE}/complaints/check-duplicate`, data),
+  deleteComplaint:       (id)            => axios.delete(`${API_BASE}/complaints/${id}`),
+  voteComplaint:         (id)            => axios.post(`${API_BASE}/complaints/${id}/vote`),
+  updateComplaintStatus: (id, data)      => axios.patch(`${API_BASE}/complaints/${id}/status`, data),
+  assignComplaint:       (id, officerId) => axios.patch(`${API_BASE}/complaints/${id}/assign`, { officerId }),
 
-  checkDuplicate: (data) =>
-    instance.post('/complaints/check-duplicate', data),
+  // ─── Officer ──────────────────────────────────────────────────────────────────
+  getOfficerComplaints:   ()         => axios.get(`${API_BASE}/officers/complaints`),
+  updateOfficerComplaint: (id, data) => axios.patch(`${API_BASE}/officers/complaints/${id}`, data),
+  getOfficerStats:        ()         => axios.get(`${API_BASE}/officers/stats`),
 
-  deleteComplaint: (id) =>
-    instance.delete(`/complaints/${id}`),
+  // ─── Admin ────────────────────────────────────────────────────────────────────
+  getAnalytics:       ()         => axios.get(`${API_BASE}/admin/analytics`),
+  getOfficers:        ()         => axios.get(`${API_BASE}/admin/officers`),
+  createOfficer:      (data)     => axios.post(`${API_BASE}/admin/officers`, data),
+  updateOfficer:      (id, data) => axios.put(`${API_BASE}/admin/officers/${id}`, data),
+  deleteOfficer:      (id)       => axios.delete(`${API_BASE}/admin/officers/${id}`),
+  getAdminComplaints: ()         => axios.get(`${API_BASE}/admin/complaints`),
+  getCitizens:        ()         => axios.get(`${API_BASE}/admin/citizens`),
 
-  voteComplaint: (id) =>
-    instance.post(`/complaints/${id}/vote`),
+  // ─── Departments ──────────────────────────────────────────────────────────────
+  getDepartments:   ()         => axios.get(`${API_BASE}/departments`),
+  createDepartment: (data)     => axios.post(`${API_BASE}/departments`, data),
+  updateDepartment: (id, data) => axios.put(`${API_BASE}/departments/${id}`, data),
+  deleteDepartment: (id)       => axios.delete(`${API_BASE}/departments/${id}`),
+  seedDepartments:  ()         => axios.post(`${API_BASE}/departments/seed`),
 
-  updateComplaintStatus: (id, data) =>
-    instance.patch(`/complaints/${id}/status`, data),
-
-  assignComplaint: (id, officerId) =>
-    instance.patch(`/complaints/${id}/assign`, { officerId }),
-
-  // ─── Officer ─────────────────────────────────────────────────────────
-  getOfficerComplaints: () =>
-    instance.get('/officers/complaints'),
-
-  updateOfficerComplaint: (id, data) =>
-    instance.patch(`/officers/complaints/${id}`, data),
-
-  getOfficerStats: () =>
-    instance.get('/officers/stats'),
-
-  // ─── Admin ───────────────────────────────────────────────────────────
-  getAnalytics: () =>
-    instance.get('/admin/analytics'),
-
-  getOfficers: () =>
-    instance.get('/admin/officers'),
-
-  createOfficer: (data) =>
-    instance.post('/admin/officers', data),
-
-  updateOfficer: (id, data) =>
-    instance.put(`/admin/officers/${id}`, data),
-
-  deleteOfficer: (id) =>
-    instance.delete(`/admin/officers/${id}`),
-
-  getAdminComplaints: () =>
-    instance.get('/admin/complaints'),
-
-  getCitizens: () =>
-    instance.get('/admin/citizens'),
-
-  // ─── Departments ─────────────────────────────────────────────────────
-  getDepartments: () =>
-    instance.get('/departments'),
-
-  createDepartment: (data) =>
-    instance.post('/departments', data),
-
-  updateDepartment: (id, data) =>
-    instance.put(`/departments/${id}`, data),
-
-  deleteDepartment: (id) =>
-    instance.delete(`/departments/${id}`),
-
-  seedDepartments: () =>
-    instance.post('/departments/seed'),
-
-  // ─── Chat ────────────────────────────────────────────────────────────
+  // ─── Chat (NEW) ───────────────────────────────────────────────────────────────
+  // Returns all chat sessions for current user (no messages, sidebar-only)
   getChats: () =>
-    instance.get('/chat'),
+    axios.get(`${API_BASE}/chat`),
 
+  // Returns a single chat with all messages
   getChat: (chatId) =>
-    instance.get(`/chat/${chatId}`),
+    axios.get(`${API_BASE}/chat/${chatId}`),
 
+  // Creates a new empty chat session
   createChat: () =>
-    instance.post('/chat'),
+    axios.post(`${API_BASE}/chat`),
 
+  // Appends a message to a chat: { sender: 'user'|'bot', text: string }
   sendMessage: (chatId, message) =>
-    instance.post(`/chat/${chatId}/messages`, message),
+    axios.post(`${API_BASE}/chat/${chatId}/messages`, message),
 
+  // Rename a chat
   renameChat: (chatId, title) =>
-    instance.patch(`/chat/${chatId}/title`, { title }),
+    axios.patch(`${API_BASE}/chat/${chatId}/title`, { title }),
 
+  // Permanently delete a chat from DB
   deleteChat: (chatId) =>
-    instance.delete(`/chat/${chatId}`),
-
-  // ─── Performance ─────────────────────────────────────────────────────
+    axios.delete(`${API_BASE}/chat/${chatId}`),
+  // ─── Performance (NEW) ───────────────────────────────────────────────────────
+  // Officers in a department with stats (for Performance tab sidebar)
   getDeptOfficers: (dept) =>
-    instance.get(`/admin/departments/${encodeURIComponent(dept)}/officers`),
+    axios.get(`${API_BASE}/admin/departments/${encodeURIComponent(dept)}/officers`),
 
+  // Full officer profile + all assigned issues
   getOfficerIssues: (officerId) =>
-    instance.get(`/admin/officers/${officerId}/issues`),
+    axios.get(`${API_BASE}/admin/officers/${officerId}/issues`),
+
+  // ─── SLA Rules ────────────────────────────────────────────────────────────────
+  getSlaRules:    ()         => axios.get(`${API_BASE}/sla-rules`),
+  saveSlaRule:    (data)     => axios.post(`${API_BASE}/sla-rules`, data),
+  updateSlaRule:  (id, data) => axios.put(`${API_BASE}/sla-rules/${id}`, data),
+  deleteSlaRule:  (id)       => axios.delete(`${API_BASE}/sla-rules/${id}`),
+
 };
 
 export default api;

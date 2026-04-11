@@ -23,6 +23,7 @@ const { classify }        = require('../utils/classifier');
 const { findDuplicate }   = require('../utils/similarity');
 const { predictPriority } = require('../utils/priorityPredictor');
 const { getAdvice }       = require('../utils/officerAdvisor');
+const { computeSlaDeadline } = require('../utils/slaHelper');
 
 const router = express.Router();
 
@@ -192,6 +193,10 @@ router.post('/', upload.array('media', 10), async (req, res) => {
     // Resolve citizen from JWT
     const citizenId = extractUserId(req);
 
+    // FormData sends all values as strings; coerce isAnonymous to a real boolean.
+    const isAnonRaw = isAnonymous;
+    const isAnonBool = isAnonRaw === true || isAnonRaw === 'true';
+
     const fullText = `${title} ${description}`;
 
     // ── ML FEATURE 1: AUTOMATIC DEPARTMENT CLASSIFICATION ────────────────────
@@ -256,7 +261,7 @@ router.post('/', upload.array('media', 10), async (req, res) => {
       latitude:    hasCoords ? parseFloat(latitude)  : null,
       longitude:   hasCoords ? parseFloat(longitude) : null,
       address:     address || '',
-      isAnonymous: isAnonymous || !citizenId,
+      isAnonymous: isAnonBool || !citizenId,
       citizenId,
       severity:    parsedSeverity,
       language:    language || 'en',
@@ -276,6 +281,12 @@ router.post('/', upload.array('media', 10), async (req, res) => {
     complaint.priority = LEVEL[priorityResult.priority] >= LEVEL[formulaPriority]
       ? priorityResult.priority
       : formulaPriority;
+
+    // Compute DB-based SLA deadline BEFORE saving to avoid a double-write.
+    // computeSlaDeadline returns the DB rule deadline if one exists for this
+    // category, otherwise falls back to the pre-save hook value.
+    const dbDeadline = await computeSlaDeadline(complaint.category, complaint.priority, complaint.createdAt);
+    complaint.slaDeadline = dbDeadline;
 
     await complaint.save();
 
@@ -322,7 +333,7 @@ router.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
-// ─── POST /api/complaints/:id/vote  (unchanged) ──────────────────────────────
+// ─── POST /api/complaints/:id/vote  ──────────────────────────────────────────
 router.post('/:id/vote', authenticate, async (req, res) => {
   try {
     const complaint = await Complaint.findById(req.params.id);
@@ -331,9 +342,17 @@ router.post('/:id/vote', authenticate, async (req, res) => {
     const hasVoted = complaint.votedBy.includes(userId);
     if (hasVoted) { complaint.votes -= 1; complaint.votedBy = complaint.votedBy.filter(id => !id.equals(userId)); }
     else          { complaint.votes += 1; complaint.votedBy.push(userId); }
+
+    const oldPriority = complaint.priority;
     complaint.priority = complaint.calculatePriority();
+
+    // Fix: recalculate slaDeadline if priority changed due to new votes
+    if (complaint.priority !== oldPriority && complaint.status !== 'Resolved') {
+      complaint.slaDeadline = await computeSlaDeadline(complaint.category, complaint.priority, complaint.createdAt);
+    }
+
     await complaint.save();
-    res.json({ votes: complaint.votes, hasVoted: !hasVoted });
+    res.json({ votes: complaint.votes, hasVoted: !hasVoted, priority: complaint.priority });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -373,18 +392,24 @@ router.patch('/:id/assign', authenticate, authorize('admin'), async (req, res) =
   }
 });
 
-// ─── GET /api/complaints/officer/assigned  (unchanged) ───────────────────────
+// ─── GET /api/complaints/officer/assigned  ────────────────────────────────────
 router.get('/officer/assigned', authenticate, authorize('officer', 'admin'), async (req, res) => {
   try {
     const query = {};
     if (req.user.role === 'officer') {
       query.$or = [{ officerId: req.user._id }, { department: req.user.department }];
     }
+    const now = new Date();
     const complaints = await Complaint.find(query)
       .populate('citizenId', 'name')
       .populate('officerId', 'name department')
-      .sort({ priority: -1, createdAt: -1 });
-    res.json(complaints);
+      // SLA-aware sort: breached unresolved first, then by priority, then newest
+      .sort({ slaDeadline: 1, priority: -1, createdAt: -1 });
+
+    // Put SLA-breached unresolved complaints at the very top
+    const breached    = complaints.filter(c => c.status !== 'Resolved' && c.slaDeadline && c.slaDeadline < now);
+    const notBreached = complaints.filter(c => !(c.status !== 'Resolved' && c.slaDeadline && c.slaDeadline < now));
+    res.json([...breached, ...notBreached]);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }

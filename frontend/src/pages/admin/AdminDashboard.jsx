@@ -4,9 +4,6 @@ import api from '../../utils/api';
 import { useLang } from '../../context/LanguageContext';
 import { translateComplaints } from '../../utils/translateCache';
 import { useCountUp } from '../../animations/useAnimations';
-import axios from 'axios';
-
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 // ─── Department config ────────────────────────────────────────────────────────
 
@@ -22,8 +19,7 @@ const CATEGORIES = ['Roads', 'Municipal', 'Electricity', 'Water', 'Parks', 'Othe
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const getSlaRules  = () => { try { return JSON.parse(localStorage.getItem('civic_sla_rules') || '[]'); } catch { return []; } };
-const saveSlaRules = (r) => localStorage.setItem('civic_sla_rules', JSON.stringify(r));
+// SLA rules are stored in the backend DB (see /api/sla-rules)
 
 const getDept = (key) => DEPARTMENTS.find(d => d.key === key) ?? DEPARTMENTS[0];
 
@@ -207,6 +203,13 @@ const IssueRow = ({ issue, index }) => (
         <span>📁 {issue.category}</span>
         <span>📅 {new Date(issue.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
         {issue.priority && <span className={`font-medium ${issue.priority === 'High' ? 'text-red-500' : issue.priority === 'Medium' ? 'text-amber-500' : 'text-gray-400'}`}>⚑ {issue.priority}</span>}
+        {issue.slaDeadline && issue.status !== 'Resolved' && (() => {
+          const now = new Date(); const dl = new Date(issue.slaDeadline);
+          const diffH = Math.round((dl - now) / 36e5);
+          if (dl < now) return <span className="font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded-md">🚨 SLA Breached</span>;
+          if (diffH <= 6) return <span className="font-semibold text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-md">⚠️ {diffH}h left</span>;
+          return null;
+        })()}
       </div>
     </div>
   </div>
@@ -222,7 +225,7 @@ const OfficerDetailPanel = ({ officerId, deptMeta, onBack }) => {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    axios.get(`${API_BASE}/admin/officers/${officerId}/issues`)
+    api.getOfficerIssues(officerId)
       .then(r => { if (!cancelled) { setData(r.data); setLoading(false); } })
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -357,7 +360,7 @@ const DeptOfficersView = ({ deptKey, onSelectOfficer, onBack }) => {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    axios.get(`${API_BASE}/admin/departments/${deptKey}/officers`)
+    api.getDeptOfficers(deptKey)
       .then(r => { if (!cancelled) { setOfficers(r.data); setLoading(false); } })
       .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -384,10 +387,22 @@ const DeptOfficersView = ({ deptKey, onSelectOfficer, onBack }) => {
         <div className="w-14 h-14 rounded-xl bg-white/20 flex items-center justify-center text-3xl flex-shrink-0">
           {deptMeta.icon}
         </div>
-        <div>
+        <div className="flex-1">
           <h2 className="font-bold text-xl">{deptMeta.label}</h2>
           <p className="text-white/70 text-sm">{officers.length} officer{officers.length !== 1 ? 's' : ''} assigned</p>
         </div>
+        {!loading && officers.length > 0 && (() => {
+          const deptTotal    = officers.reduce((s, o) => s + (o.stats?.total    ?? 0), 0);
+          const deptResolved = officers.reduce((s, o) => s + (o.stats?.resolved ?? 0), 0);
+          const rate = deptTotal > 0 ? Math.round((deptResolved / deptTotal) * 100) : 0;
+          return (
+            <div className="flex gap-5 ml-auto text-center">
+              <div><p className="font-bold text-xl text-white">{deptTotal}</p><p className="text-white/60 text-xs">Total Issues</p></div>
+              <div><p className="font-bold text-xl text-emerald-300">{deptResolved}</p><p className="text-white/60 text-xs">Resolved</p></div>
+              <div><p className="font-bold text-xl text-sky-300">{rate}%</p><p className="text-white/60 text-xs">Rate</p></div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Sort controls */}
@@ -439,15 +454,25 @@ const DeptOfficersView = ({ deptKey, onSelectOfficer, onBack }) => {
 // ─── Performance: Department overview ────────────────────────────────────────
 
 const DeptOverview = ({ allOfficers, allComplaints, onSelectDept }) => {
-  // Pre-compute per-dept stats from already-loaded data
+  // Pre-compute per-dept stats using the same logic as the backend drill-down:
+  // complaints are counted by officerId so the summary always matches the detail view.
   const deptStats = DEPARTMENTS.map(d => {
+    // Officers belonging to this department (case-insensitive key match)
     const dOfficers = allOfficers.filter(o =>
       o.department?.toLowerCase().includes(d.key.toLowerCase())
     );
-    const dComplaints = allComplaints.filter(c =>
-      c.category?.toLowerCase().includes(d.key.toLowerCase()) ||
-      c.department?.toLowerCase().includes(d.key.toLowerCase())
-    );
+    const dOfficerIds = new Set(dOfficers.map(o => String(o._id)));
+
+    // Complaints assigned to any officer in this department (matches backend /departments/:dept/officers logic)
+    const dComplaints = allComplaints.filter(c => {
+      const assignedId = c.officerId?._id
+        ? String(c.officerId._id)   // populated object
+        : c.officerId               // raw ObjectId string
+          ? String(c.officerId)
+          : null;
+      return assignedId && dOfficerIds.has(assignedId);
+    });
+
     const resolved = dComplaints.filter(c => c.status === 'Resolved').length;
     return { ...d, officerCount: dOfficers.length, totalIssues: dComplaints.length, resolved };
   });
@@ -910,37 +935,62 @@ const AddDeptModal = ({ onClose, onAdd, t }) => {
   );
 };
 
-const SlaRuleModal = ({ onClose, onSave, editing, departments, t }) => {
-  const [form, setForm] = useState(editing ?? { category: '', maxHours: 72, description: '' });
+const SlaRuleModal = ({ onClose, onSave, editing, t }) => {
+  const [form, setForm] = useState(editing ?? {
+    category: '', highHours: 24, mediumHours: 72, lowHours: 168, description: ''
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState('');
+  const handleSave = async () => {
+    if (!form.category) { setErr('Please select a category.'); return; }
+    setSaving(true); setErr('');
+    try { await onSave(form); }
+    catch (e) { setErr(e?.response?.data?.message || 'Failed to save rule.'); }
+    finally { setSaving(false); }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 animate-scale-in" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display font-bold text-lg text-gray-900">{editing ? t('editSlaRule') : t('addSlaRule')}</h2>
+          <h2 className="font-display font-bold text-lg text-gray-900">{editing ? 'Edit SLA Rule' : 'Add SLA Rule'}</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">✕</button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">{t('category')}</label>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">Category</label>
             <select value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none">
-              <option value="">{t('selectCategory')}</option>
+              disabled={!!editing}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none disabled:bg-gray-50">
+              <option value="">Select category</option>
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          <p className="text-xs font-medium text-gray-500">SLA Hours by Priority</p>
+          {[
+            { label: '🔴 High Priority',   field: 'highHours',   color: 'border-red-200 focus:border-red-400' },
+            { label: '🟡 Medium Priority', field: 'mediumHours', color: 'border-amber-200 focus:border-amber-400' },
+            { label: '🟢 Low Priority',    field: 'lowHours',    color: 'border-green-200 focus:border-green-400' },
+          ].map(({ label, field, color }) => (
+            <div key={field} className="flex items-center gap-3">
+              <span className="text-xs text-gray-600 w-36 flex-shrink-0">{label}</span>
+              <input type="number" min="1" value={form[field]}
+                onChange={e => setForm(p => ({ ...p, [field]: Number(e.target.value) }))}
+                className={`flex-1 border rounded-xl px-3 py-2 text-sm focus:outline-none ${color}`} />
+              <span className="text-xs text-gray-400">hrs</span>
+            </div>
+          ))}
           <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">{t('maxHours')}</label>
-            <input type="number" min="1" value={form.maxHours} onChange={e => setForm(p => ({ ...p, maxHours: Number(e.target.value) }))}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 mb-1 block">{t('description')}</label>
+            <label className="text-xs font-medium text-gray-500 mb-1 block">Description (optional)</label>
             <textarea rows={2} value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
               className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none resize-none" />
           </div>
+          {err && <p className="text-red-500 text-xs">{err}</p>}
           <div className="flex gap-2 pt-1">
             <button onClick={onClose} className="flex-1 py-2 rounded-xl border border-gray-200 text-sm text-gray-600">Cancel</button>
-            <button onClick={() => onSave(form)} className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold">Save</button>
+            <button onClick={handleSave} disabled={saving}
+              className="flex-1 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:opacity-60">
+              {saving ? 'Saving…' : 'Save Rule'}
+            </button>
           </div>
         </div>
       </div>
@@ -989,6 +1039,16 @@ const ComplaintAssignRow = React.memo(({ c, officersByDept, handleAssignComplain
       <td className="px-4 py-3"><StatusBadge status={c.status} /></td>
       <td className="px-4 py-3"><span className={`priority-${c.priority?.toLowerCase()}`}>{c.priority}</span></td>
       <td className="px-4 py-3 text-gray-600">{c.votes}</td>
+      <td className="px-4 py-3">
+        {c.slaDeadline && c.status !== 'Resolved' ? (() => {
+          const now = new Date(); const dl = new Date(c.slaDeadline);
+          const diffH = Math.round((dl - now) / 36e5);
+          if (dl < now) return <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-full whitespace-nowrap">🚨 Breached</span>;
+          if (diffH <= 6)  return <span className="text-xs font-semibold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full whitespace-nowrap">⚠️ {diffH}h</span>;
+          if (diffH <= 24) return <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full whitespace-nowrap">{diffH}h left</span>;
+          return <span className="text-xs text-gray-400">{Math.round(diffH/24)}d left</span>;
+        })() : <span className="text-gray-300 text-xs">—</span>}
+      </td>
       <td className="px-4 py-3 text-gray-600 text-xs">
         {c.officerId?.name
           ? <span className="flex items-center gap-1">
@@ -1045,7 +1105,7 @@ const AdminDashboard = () => {
   const [complaintFilter, setComplaintFilter] = useState('none'); // 'none' | 'all' | 'Pending' | 'Resolved' | 'InProgress'
   const [showAddOfficer, setShowAddOfficer] = useState(false);
   const [showAddDept, setShowAddDept]       = useState(false);
-  const [slaRules, setSlaRules]             = useState(getSlaRules());
+  const [slaRules, setSlaRules]             = useState([]);
   const [showSlaModal, setShowSlaModal]     = useState(false);
   const [editingSla, setEditingSla]         = useState(null);
 
@@ -1067,9 +1127,10 @@ const AdminDashboard = () => {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [aRes, cRes, oRes, dRes, ctRes] = await Promise.all([
+      const [aRes, cRes, oRes, dRes, ctRes, slaRes] = await Promise.all([
         api.getAnalytics(), api.getAdminComplaints(),
         api.getOfficers(), api.getDepartments(), api.getCitizens(),
+        api.getSlaRules(),
       ]);
       setAnalytics(aRes.data);
       setRawComplaints(cRes.data);
@@ -1077,6 +1138,7 @@ const AdminDashboard = () => {
       setOfficers(oRes.data);
       setDepartments(dRes.data);
       setCitizens(ctRes.data);
+      setSlaRules(slaRes.data);
     } catch (err) { console.error('Admin fetch error', err); }
     setLoading(false);
   };
@@ -1104,15 +1166,18 @@ const AdminDashboard = () => {
   const handleAssignComplaint = async (complaintId, officerId) => {
     try { await api.assignComplaint(complaintId, officerId); fetchAll(); } catch {}
   };
-  const handleSaveSla = (rule) => {
-    const updated = rule.id
-      ? slaRules.map(r => r.id === rule.id ? rule : r)
-      : [...slaRules, { ...rule, id: Date.now().toString() }];
-    setSlaRules(updated); saveSlaRules(updated); setShowSlaModal(false); setEditingSla(null);
+  const handleSaveSla = async (rule) => {
+    if (rule._id) {
+      await api.updateSlaRule(rule._id, rule);
+    } else {
+      await api.saveSlaRule(rule);
+    }
+    setShowSlaModal(false); setEditingSla(null);
+    fetchAll();
   };
-  const handleDeleteSla = (id) => {
-    const updated = slaRules.filter(r => r.id !== id);
-    setSlaRules(updated); saveSlaRules(updated);
+  const handleDeleteSla = async (id) => {
+    await api.deleteSlaRule(id);
+    fetchAll();
   };
 
   const tabLabels = {
@@ -1134,7 +1199,7 @@ const AdminDashboard = () => {
       <Navbar role="admin" />
       {showAddOfficer && <AddOfficerModal onClose={() => setShowAddOfficer(false)} onAdd={fetchAll} departments={departments} t={t} />}
       {showAddDept    && <AddDeptModal    onClose={() => setShowAddDept(false)} onAdd={fetchAll} t={t} />}
-      {showSlaModal   && <SlaRuleModal    onClose={() => { setShowSlaModal(false); setEditingSla(null); }} onSave={handleSaveSla} editing={editingSla} departments={departments} t={t} />}
+      {showSlaModal   && <SlaRuleModal    onClose={() => { setShowSlaModal(false); setEditingSla(null); }} onSave={handleSaveSla} editing={editingSla} t={t} />}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 animate-page-enter">
         <div className="flex items-center justify-between mb-6 animate-fade-up d0">
@@ -1309,7 +1374,7 @@ const AdminDashboard = () => {
               <table className="w-full text-sm">
                 <thead className="bg-purple-50/60">
                   <tr>
-                    {[t('title'), t('category'), t('statusLabel'), t('priority'), t('votes'), t('officers'), t('assign'), t('date')].map(h => (
+                    {[t('title'), t('category'), t('statusLabel'), t('priority'), t('votes'), 'SLA', t('officers'), t('assign'), t('date')].map(h => (
                       <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">{h}</th>
                     ))}
                   </tr>
@@ -1417,28 +1482,74 @@ const AdminDashboard = () => {
         {/* ── SLA Rules Tab ── */}
         {tab === 'slaRules' && (
           <div className="animate-fade-up">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display font-bold text-lg text-gray-900">{t('slaRules')} ({slaRules.length})</h2>
-              <button onClick={() => setShowSlaModal(true)} className="btn-primary text-sm btn-press">{t('addSlaRule')}</button>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h2 className="font-display font-bold text-lg text-gray-900">SLA Rules ({slaRules.length})</h2>
+                <p className="text-gray-400 text-xs mt-0.5">Per-category deadlines — applied to every new complaint and re-applied when votes change priority</p>
+              </div>
+              <button onClick={() => setShowSlaModal(true)} className="btn-primary text-sm btn-press">+ Add Rule</button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {slaRules.map((rule, i) => (
-                <div key={rule.id} className="card p-5 card-lift animate-fade-up" style={{ animationDelay: `${i * 70}ms`, animationFillMode: 'both' }}>
-                  <div className="flex items-start justify-between mb-2">
-                    <span className="font-display font-semibold text-gray-900">{rule.category || '—'}</span>
-                    <div className="flex gap-1">
-                      <button onClick={() => { setEditingSla(rule); setShowSlaModal(true); }} className="p-1.5 text-indigo-400 hover:bg-indigo-50 rounded-lg transition-colors text-xs">✏️</button>
-                      <button onClick={() => handleDeleteSla(rule.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors text-xs">🗑️</button>
-                    </div>
+
+            {/* Live breach summary */}
+            {(() => {
+              const now = new Date();
+              const breached = rawComplaints.filter(c => c.status !== 'Resolved' && c.slaDeadline && new Date(c.slaDeadline) < now);
+              if (breached.length === 0) return null;
+              return (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
+                  <span className="text-2xl">🚨</span>
+                  <div>
+                    <p className="font-semibold text-red-700 text-sm">{breached.length} complaint{breached.length !== 1 ? 's' : ''} currently breaching SLA</p>
+                    <p className="text-red-400 text-xs">These appear at the top of the Complaints tab sorted by urgency</p>
                   </div>
-                  <p className="text-2xl font-bold text-indigo-600 mb-1">{rule.maxHours}h</p>
-                  <p className="text-gray-400 text-xs">{rule.description || t('noDescription')}</p>
                 </div>
-              ))}
+              );
+            })()}
+
+            {/* Rule cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+              {slaRules.map((rule, i) => {
+                const categoryComplaints = rawComplaints.filter(c => c.category === rule.category && c.status !== 'Resolved');
+                const now = new Date();
+                const breachCount = categoryComplaints.filter(c => c.slaDeadline && new Date(c.slaDeadline) < now).length;
+                return (
+                  <div key={rule._id} className="card p-5 card-lift animate-fade-up" style={{ animationDelay: `${i * 70}ms`, animationFillMode: 'both' }}>
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <span className="font-display font-semibold text-gray-900">{rule.category || '—'}</span>
+                        {breachCount > 0 && (
+                          <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-semibold">
+                            {breachCount} breached
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <button onClick={() => { setEditingSla(rule); setShowSlaModal(true); }} className="p-1.5 text-indigo-400 hover:bg-indigo-50 rounded-lg transition-colors text-xs">✏️</button>
+                        <button onClick={() => handleDeleteSla(rule._id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors text-xs">🗑️</button>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 mb-3">
+                      {[
+                        { label: '🔴 High',   hours: rule.highHours,   color: 'text-red-600' },
+                        { label: '🟡 Medium', hours: rule.mediumHours, color: 'text-amber-600' },
+                        { label: '🟢 Low',    hours: rule.lowHours,    color: 'text-emerald-600' },
+                      ].map(({ label, hours, color }) => (
+                        <div key={label} className="flex justify-between items-center text-xs">
+                          <span className="text-gray-500">{label}</span>
+                          <span className={`font-bold ${color}`}>{hours}h</span>
+                        </div>
+                      ))}
+                    </div>
+                    {rule.description && <p className="text-gray-400 text-xs border-t border-gray-50 pt-2">{rule.description}</p>}
+                  </div>
+                );
+              })}
               {slaRules.length === 0 && (
                 <div className="col-span-full card p-12 text-center animate-scale-in">
                   <div className="text-5xl mb-3">⏱️</div>
-                  <p className="text-gray-400 font-medium">{t('noSlaRules')}</p>
+                  <p className="text-gray-500 font-medium mb-1">No SLA rules defined yet</p>
+                  <p className="text-gray-400 text-sm">Add a rule to set deadlines per category. Complaints will be sorted by SLA urgency automatically.</p>
                 </div>
               )}
             </div>

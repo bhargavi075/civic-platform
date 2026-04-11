@@ -370,7 +370,9 @@ const MapView = () => {
               )}
 
               {/* Complaint markers */}
-              {filtered.map((c) => (
+              {filtered
+                .filter(c => c.latitude != null && c.longitude != null && !isNaN(c.latitude) && !isNaN(c.longitude))
+                .map((c) => (
                 <Marker
                   key={c._id}
                   position={[c.latitude, c.longitude]}

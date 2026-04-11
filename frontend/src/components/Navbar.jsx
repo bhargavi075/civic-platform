@@ -45,7 +45,7 @@ const Navbar = ({ role = 'citizen' }) => {
 
   return (
     <nav
-      className="bg-white/90 backdrop-blur-md border-b border-purple-100 sticky top-0 z-50 animate-fade-in-slow"
+      className="bg-white/90 backdrop-blur-md border-b border-purple-100 sticky top-0 z-50 animate-slide-down"
       style={{ boxShadow: '0 2px 16px rgba(168,85,247,.08)' }}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
@@ -72,7 +72,7 @@ const Navbar = ({ role = 'citizen' }) => {
                 <Link
                   key={link.to}
                   to={link.to}
-                  className={`nav-link px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 font-body ${
+                  className={`nav-link px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 font-body hover:scale-105 ${
                     isActive
                       ? 'text-purple-700 bg-purple-50 font-semibold'
                       : 'text-gray-600 hover:text-purple-700 hover:bg-purple-50'
@@ -135,7 +135,7 @@ const Navbar = ({ role = 'citizen' }) => {
             {user ? (
               <>
                 <div className="hidden sm:flex items-center gap-2">
-                  <div className={`w-7 h-7 bg-gradient-to-br ${roleColors[role]} rounded-full flex items-center justify-center transition-transform hover:scale-110 duration-200`}>
+                  <div className={`w-7 h-7 bg-gradient-to-br ${roleColors[role]} rounded-full flex items-center justify-center transition-all duration-300 hover:scale-125 hover:rotate-12 animate-pulse-glow`}>
                     <span className="text-white text-xs font-bold">{user.name?.[0]?.toUpperCase()}</span>
                   </div>
                   <span className="text-sm font-medium text-gray-700 max-w-[100px] truncate font-body">{user.name}</span>

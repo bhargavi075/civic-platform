@@ -130,11 +130,16 @@ router.delete('/officers/:id', async (req, res) => {
 // Get all complaints (admin view)
 router.get('/complaints', async (req, res) => {
   try {
-    const complaints = await Complaint.find()
+    const now = new Date();
+    const all = await Complaint.find()
       .populate('citizenId', 'name email')
       .populate('officerId', 'name department')
-      .sort({ createdAt: -1 });
-    res.json(complaints);
+      .sort({ slaDeadline: 1, priority: -1, createdAt: -1 });
+
+    // SLA-breached unresolved complaints surfaced first
+    const breached    = all.filter(c => c.status !== 'Resolved' && c.slaDeadline && c.slaDeadline < now);
+    const notBreached = all.filter(c => !(c.status !== 'Resolved' && c.slaDeadline && c.slaDeadline < now));
+    res.json([...breached, ...notBreached]);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -201,9 +206,15 @@ router.get('/officers/:id/issues', async (req, res) => {
     if (!officer || officer.role !== 'officer')
       return res.status(404).json({ message: 'Officer not found' });
 
-    const complaints = await Complaint.find({ officerId: officer._id })
-      .sort({ createdAt: -1 })
+    const now        = new Date();
+    const allComplaints = await Complaint.find({ officerId: officer._id })
+      .sort({ slaDeadline: 1, priority: -1, createdAt: -1 })
       .lean();
+
+    // SLA breached unresolved first
+    const breached    = allComplaints.filter(c => c.status !== 'Resolved' && c.slaDeadline && c.slaDeadline < now);
+    const notBreached = allComplaints.filter(c => !(c.status !== 'Resolved' && c.slaDeadline && c.slaDeadline < now));
+    const complaints  = [...breached, ...notBreached];
 
     const resolved   = complaints.filter(c => c.status === 'Resolved').length;
     const pending    = complaints.filter(c => c.status === 'Pending').length;
